@@ -18,7 +18,7 @@ import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
-@RequestMapping("/api/invoices")
+@RequestMapping("/v1/invoices")
 @RequiredArgsConstructor
 public class InvoiceController {
 

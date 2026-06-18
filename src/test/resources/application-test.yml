@@ -16,3 +16,8 @@ spring:
       name: test_admin
       password: test_admin_password
 
+app:
+  jwt:
+    secret: test_jwt_secret_test_jwt_secret_123456
+    expiration-minutes: 60
+

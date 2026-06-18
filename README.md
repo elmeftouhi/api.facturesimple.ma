@@ -34,8 +34,8 @@ Base config: `application.yml` sets `spring.profiles.default=local`.
 ## Security and tenant behavior
 
 - Public endpoints:
-  - `POST /api/auth/register`
-  - `POST /api/auth/login`
+  - `POST /v1/auth/register`
+  - `POST /v1/auth/login`
 - Auth required for all other endpoints.
 - JWT contains:
   - `uid` (user id)
@@ -50,28 +50,28 @@ Base config: `application.yml` sets `spring.profiles.default=local`.
 
 ### Auth
 
-- `POST /api/auth/register`
-- `POST /api/auth/login`
-- `POST /api/auth/switch-tenant`
+- `POST /v1/auth/register`
+- `POST /v1/auth/login`
+- `POST /v1/auth/switch-tenant`
 
 ### User
 
-- `GET /api/me`
-- `GET /api/me/tenants`
+- `GET /v1/me`
+- `GET /v1/me/tenants`
 
 ### Tenant-owned sample resource (invoices)
 
-- `POST /api/invoices`
-- `GET /api/invoices`
-- `GET /api/invoices/{id}`
-- `PUT /api/invoices/{id}`
-- `DELETE /api/invoices/{id}`
+- `POST /v1/invoices`
+- `GET /v1/invoices`
+- `GET /v1/invoices/{id}`
+- `PUT /v1/invoices/{id}`
+- `DELETE /v1/invoices/{id}`
 
 ## Example requests and responses
 
 ### Register
 
-`POST /api/auth/register`
+`POST /v1/auth/register`
 
 ```json
 {
@@ -95,7 +95,7 @@ Response:
 
 ### Login
 
-`POST /api/auth/login`
+`POST /v1/auth/login`
 
 ```json
 {
@@ -106,7 +106,7 @@ Response:
 
 ### Switch tenant
 
-`POST /api/auth/switch-tenant`
+`POST /v1/auth/switch-tenant`
 
 ```json
 {
@@ -118,7 +118,7 @@ Response: same shape as login/register but with updated `selectedTenantId` and n
 
 ### Create invoice
 
-`POST /api/invoices`
+`POST /v1/invoices`
 
 ```json
 {
@@ -133,14 +133,16 @@ Response: same shape as login/register but with updated `selectedTenantId` and n
 ## Run
 
 ```powershell
-Set-Location "D:\Projects\TESTINGS\api.facturesimple.ma"
-.\mvnw.cmd spring-boot:run -Dspring-boot.run.profiles=local
+Set-Location "C:\Users\Windows 11\Desktop\Projects\api.facturesimple.ma"
+cmd /c ".\mvnw.cmd spring-boot:run -Dspring-boot.run.profiles=local"
 ```
 
 ## Test
 
 ```powershell
-Set-Location "D:\Projects\TESTINGS\api.facturesimple.ma"
-.\mvnw.cmd test -Dspring.profiles.active=test
+Set-Location "C:\Users\Windows 11\Desktop\Projects\api.facturesimple.ma"
+cmd /c ".\mvnw.cmd test -Dspring.profiles.active=test"
 ```
+
+> Note: this repository is a Spring Boot/Maven project, so `npm run test` will fail because there is no `package.json`.
 
