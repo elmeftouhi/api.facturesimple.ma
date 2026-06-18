@@ -1,0 +1,22 @@
+spring:
+  config:
+    activate:
+      on-profile: local
+  datasource:
+    url: jdbc:postgresql://localhost:5432/facturesimple
+    username: facturesimple
+    password: facturesimple
+    driver-class-name: org.postgresql.Driver
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: true
+    properties:
+      hibernate:
+        format_sql: true
+
+app:
+  jwt:
+    secret: replace-with-at-least-32-characters-local-secret-key
+    expiration-minutes: 120
+
