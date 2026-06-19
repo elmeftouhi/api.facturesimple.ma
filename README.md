@@ -12,6 +12,9 @@ This project is a Spring Boot REST API with:
 - `multitenancy`: `TenantContext`, tenant filter, tenant entity listener
 - `tenant`: tenant entity/repository/DTOs
 - `user`: user, role, user-tenant link, profile endpoints/services
+- `customer`: tenant-owned customer CRUD
+- `customer.category`: tenant-owned customer category CRUD
+- `provider`: tenant-owned provider CRUD
 - `invoice`: sample tenant-owned CRUD resource
 - `shared.exception`: API exception handling
 
@@ -74,6 +77,40 @@ Base config: `application.yml` sets `spring.profiles.default=local`.
 - `GET /v1/invoices/{id}`
 - `PUT /v1/invoices/{id}`
 - `DELETE /v1/invoices/{id}`
+
+### Tenant-owned customers
+
+- `POST /v1/customers`
+- `GET /v1/customers`
+- `GET /v1/customers/{id}`
+- `PUT /v1/customers/{id}`
+- `DELETE /v1/customers/{id}`
+
+`PUT /v1/customers/{id}` accepts partial payloads. Missing fields keep their current values.
+
+### Tenant-owned customer categories
+
+- `POST /v1/customer-categories`
+- `GET /v1/customer-categories`
+- `GET /v1/customer-categories/{id}`
+- `PUT /v1/customer-categories/{id}`
+- `PUT /v1/customer-categories/{id}/default`
+- `DELETE /v1/customer-categories/{id}/default`
+- `DELETE /v1/customer-categories/{id}`
+
+Default customer category cannot be deleted directly.
+Customer categories linked to existing customers cannot be deleted.
+
+`PUT /v1/customer-categories/{id}` accepts partial payloads. Missing fields keep their current values.
+Use `PUT /v1/customer-categories/{id}/default` to mark a category as default, and `DELETE /v1/customer-categories/{id}/default` to unset it.
+
+### Tenant-owned providers
+
+- `POST /v1/providers`
+- `GET /v1/providers`
+- `GET /v1/providers/{id}`
+- `PUT /v1/providers/{id}`
+- `DELETE /v1/providers/{id}`
 
 ## Example requests and responses
 
@@ -145,6 +182,51 @@ Response: `204 No Content`.
 ```
 
 `tenant_id` is not accepted from client and is assigned from current tenant context.
+
+### Create customer
+
+`POST /v1/customers`
+
+```json
+{
+  "name": "Acme Morocco",
+  "email": "contact@acme.ma",
+  "phone": "+212600000000",
+  "address": "Casablanca",
+  "taxId": "ICE-123456",
+  "categoryId": 1
+}
+```
+
+`categoryId` is optional. If omitted, the tenant default category is used. When provided, it must reference a category in the current tenant.
+
+### Create customer category
+
+`POST /v1/customer-categories`
+
+```json
+{
+  "name": "Wholesale",
+  "description": "B2B customers with volume contracts",
+  "isDefault": true
+}
+```
+
+`isDefault` is optional. If no default exists yet for the tenant, the created category becomes default automatically.
+
+### Create provider
+
+`POST /v1/providers`
+
+```json
+{
+  "name": "Office Supplies SARL",
+  "email": "sales@supplies.ma",
+  "phone": "+212611111111",
+  "address": "Rabat",
+  "taxId": "ICE-654321"
+}
+```
 
 ### Create another tenant (authenticated)
 
