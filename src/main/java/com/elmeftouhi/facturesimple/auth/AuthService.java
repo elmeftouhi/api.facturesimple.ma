@@ -3,6 +3,7 @@ package com.elmeftouhi.facturesimple.auth;
 import com.elmeftouhi.facturesimple.auth.dto.AuthResponse;
 import com.elmeftouhi.facturesimple.auth.dto.LoginRequest;
 import com.elmeftouhi.facturesimple.auth.dto.RegisterRequest;
+import com.elmeftouhi.facturesimple.auth.dto.TenantInviteResponse;
 import com.elmeftouhi.facturesimple.security.AppUserDetails;
 import com.elmeftouhi.facturesimple.security.JwtProperties;
 import com.elmeftouhi.facturesimple.security.JwtService;
@@ -12,12 +13,16 @@ import com.elmeftouhi.facturesimple.shared.exception.ConflictException;
 import com.elmeftouhi.facturesimple.shared.exception.ResourceNotFoundException;
 import com.elmeftouhi.facturesimple.shared.exception.TenantAccessDeniedException;
 import com.elmeftouhi.facturesimple.tenant.Tenant;
+import com.elmeftouhi.facturesimple.tenant.TenantInvite;
+import com.elmeftouhi.facturesimple.tenant.TenantInviteRepository;
 import com.elmeftouhi.facturesimple.tenant.TenantRepository;
 import com.elmeftouhi.facturesimple.user.AppUser;
 import com.elmeftouhi.facturesimple.user.AppUserRepository;
 import com.elmeftouhi.facturesimple.user.Role;
 import com.elmeftouhi.facturesimple.user.UserTenant;
 import com.elmeftouhi.facturesimple.user.UserTenantRepository;
+import java.security.SecureRandom;
+import java.time.Instant;
 import java.util.HashSet;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -33,9 +38,14 @@ import org.springframework.transaction.annotation.Transactional;
 @RequiredArgsConstructor
 public class AuthService {
 
+    private static final String INVITE_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+    private static final int INVITE_CODE_LENGTH = 10;
+    private static final SecureRandom INVITE_RANDOM = new SecureRandom();
+
     private final AppUserRepository appUserRepository;
     private final UserTenantRepository userTenantRepository;
     private final TenantRepository tenantRepository;
+    private final TenantInviteRepository tenantInviteRepository;
     private final AuthenticationManager authenticationManager;
     private final PasswordEncoder passwordEncoder;
     private final JwtService jwtService;
@@ -108,12 +118,22 @@ public class AuthService {
     }
 
     @Transactional
-    public AuthResponse joinTenantForUser(Long userId, Long tenantId) {
+    public AuthResponse joinTenantForUser(Long userId, String inviteCode) {
         AppUser user = appUserRepository.findById(userId)
                 .orElseThrow(() -> new ResourceNotFoundException("User not found"));
 
-        Tenant tenant = tenantRepository.findById(tenantId)
-                .orElseThrow(() -> new ResourceNotFoundException("Tenant not found"));
+        TenantInvite invite = tenantInviteRepository.findByCodeIgnoreCase(inviteCode.trim())
+                .orElseThrow(() -> new ResourceNotFoundException("Invite not found"));
+
+        if (invite.getUsedAt() != null) {
+            throw new ConflictException("Invite already used");
+        }
+        if (invite.getExpiresAt().isBefore(Instant.now())) {
+            throw new ConflictException("Invite has expired");
+        }
+
+        Long tenantId = invite.getTenant().getId();
+        Tenant tenant = invite.getTenant();
 
         if (userTenantRepository.existsByUserIdAndTenantId(userId, tenantId)) {
             throw new ConflictException("You already belong to this tenant");
@@ -124,7 +144,34 @@ public class AuthService {
         userTenant.setTenant(tenant);
         userTenantRepository.save(userTenant);
 
+        invite.setUsedAt(Instant.now());
+        tenantInviteRepository.save(invite);
+
         return buildAuthResponse(user, tenantId);
+    }
+
+    @Transactional
+    public TenantInviteResponse createTenantInviteForUser(Long userId, Long tenantId, Integer expiresInHours) {
+        AppUser user = appUserRepository.findById(userId)
+                .orElseThrow(() -> new ResourceNotFoundException("User not found"));
+
+        if (!userTenantRepository.existsByUserIdAndTenantId(userId, tenantId)) {
+            throw new TenantAccessDeniedException("You do not belong to this tenant");
+        }
+
+        Tenant tenant = tenantRepository.findById(tenantId)
+                .orElseThrow(() -> new ResourceNotFoundException("Tenant not found"));
+
+        Instant expiresAt = Instant.now().plusSeconds(expiresInHours.longValue() * 3600);
+
+        TenantInvite invite = new TenantInvite();
+        invite.setCode(generateUniqueInviteCode());
+        invite.setTenant(tenant);
+        invite.setCreatedBy(user);
+        invite.setExpiresAt(expiresAt);
+        invite = tenantInviteRepository.save(invite);
+
+        return new TenantInviteResponse(invite.getCode(), tenantId, invite.getExpiresAt());
     }
 
     @Transactional(readOnly = true)
@@ -165,6 +212,21 @@ public class AuthService {
             throw new BadRequestException("Missing bearer token");
         }
         return token;
+    }
+
+    private String generateUniqueInviteCode() {
+        for (int attempt = 0; attempt < 10; attempt++) {
+            StringBuilder codeBuilder = new StringBuilder(INVITE_CODE_LENGTH);
+            for (int i = 0; i < INVITE_CODE_LENGTH; i++) {
+                int index = INVITE_RANDOM.nextInt(INVITE_CODE_ALPHABET.length());
+                codeBuilder.append(INVITE_CODE_ALPHABET.charAt(index));
+            }
+            String code = codeBuilder.toString();
+            if (!tenantInviteRepository.existsByCode(code)) {
+                return code;
+            }
+        }
+        throw new IllegalStateException("Unable to generate unique invite code");
     }
 }
 

@@ -2,10 +2,12 @@ package com.elmeftouhi.facturesimple.auth;
 
 import com.elmeftouhi.facturesimple.auth.dto.AuthResponse;
 import com.elmeftouhi.facturesimple.auth.dto.CreateTenantRequest;
+import com.elmeftouhi.facturesimple.auth.dto.CreateTenantInviteRequest;
 import com.elmeftouhi.facturesimple.auth.dto.JoinTenantRequest;
 import com.elmeftouhi.facturesimple.auth.dto.LoginRequest;
 import com.elmeftouhi.facturesimple.auth.dto.RegisterRequest;
 import com.elmeftouhi.facturesimple.auth.dto.SwitchTenantRequest;
+import com.elmeftouhi.facturesimple.auth.dto.TenantInviteResponse;
 import com.elmeftouhi.facturesimple.security.JwtPrincipal;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -58,7 +60,15 @@ public class AuthController {
             @AuthenticationPrincipal JwtPrincipal principal,
             @Valid @RequestBody JoinTenantRequest request
     ) {
-        return authService.joinTenantForUser(principal.userId(), request.tenantId());
+        return authService.joinTenantForUser(principal.userId(), request.inviteCode());
+    }
+
+    @PostMapping("/tenants/invites")
+    public TenantInviteResponse createTenantInvite(
+            @AuthenticationPrincipal JwtPrincipal principal,
+            @Valid @RequestBody CreateTenantInviteRequest request
+    ) {
+        return authService.createTenantInviteForUser(principal.userId(), request.tenantId(), request.expiresInHours());
     }
 
     @PostMapping("/logout")

@@ -54,7 +54,8 @@ Base config: `application.yml` sets `spring.profiles.default=local`.
 - `POST /v1/auth/login`
 - `POST /v1/auth/switch-tenant`
 - `POST /v1/auth/tenants` (create tenant and auto-join)
-- `POST /v1/auth/tenants/join` (join existing tenant)
+- `POST /v1/auth/tenants/invites` (create tenant invite code)
+- `POST /v1/auth/tenants/join` (join with invite code)
 - `POST /v1/auth/logout`
 
 ### User
@@ -155,11 +156,30 @@ Response: same shape as login/register with the new tenant selected.
 
 ### Join existing tenant (authenticated)
 
+`POST /v1/auth/tenants/invites`
+
+```json
+{
+  "tenantId": 2,
+  "expiresInHours": 24
+}
+```
+
+Example response:
+
+```json
+{
+  "inviteCode": "9XK7P2QW4M",
+  "tenantId": 2,
+  "expiresAt": "2026-06-20T14:30:00Z"
+}
+```
+
 `POST /v1/auth/tenants/join`
 
 ```json
 {
-  "tenantId": 2
+  "inviteCode": "9XK7P2QW4M"
 }
 ```
 
