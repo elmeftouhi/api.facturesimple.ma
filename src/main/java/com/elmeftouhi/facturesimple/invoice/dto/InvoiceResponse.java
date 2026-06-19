@@ -2,12 +2,21 @@ package com.elmeftouhi.facturesimple.invoice.dto;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.time.LocalDate;
+import java.util.List;
 
 public record InvoiceResponse(
         Long id,
-        String reference,
+        Long invoiceNumber,
+        String formattedNumber,
+        LocalDate invoiceDate,
+        LocalDate dueDate,
+        Long customerId,
+        String customerName,
         String description,
-        BigDecimal amount,
+        BigDecimal vatRate,
+        List<InvoiceLineItemResponse> lineItems,
+        List<InvoicePaymentResponse> payments,
         Long tenantId,
         Instant createdAt
 ) {

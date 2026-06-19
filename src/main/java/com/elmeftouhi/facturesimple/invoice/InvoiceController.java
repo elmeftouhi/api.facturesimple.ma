@@ -1,6 +1,8 @@
  package com.elmeftouhi.facturesimple.invoice;
 
 import com.elmeftouhi.facturesimple.invoice.dto.InvoiceCreateRequest;
+import com.elmeftouhi.facturesimple.invoice.dto.InvoicePaymentRequest;
+import com.elmeftouhi.facturesimple.invoice.dto.InvoicePaymentResponse;
 import com.elmeftouhi.facturesimple.invoice.dto.InvoiceResponse;
 import com.elmeftouhi.facturesimple.invoice.dto.InvoiceUpdateRequest;
 import jakarta.validation.Valid;
@@ -43,6 +45,18 @@ public class InvoiceController {
     @PutMapping("/{id}")
     public InvoiceResponse update(@PathVariable Long id, @Valid @RequestBody InvoiceUpdateRequest request) {
         return invoiceService.update(id, request);
+    }
+
+    @PostMapping("/{id}/payments")
+    @ResponseStatus(HttpStatus.CREATED)
+    public InvoicePaymentResponse addPayment(@PathVariable Long id, @Valid @RequestBody InvoicePaymentRequest request) {
+        return invoiceService.addPayment(id, request);
+    }
+
+    @DeleteMapping("/{id}/payments/{paymentId}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void removePayment(@PathVariable Long id, @PathVariable Long paymentId) {
+        invoiceService.removePayment(id, paymentId);
     }
 
     @DeleteMapping("/{id}")
