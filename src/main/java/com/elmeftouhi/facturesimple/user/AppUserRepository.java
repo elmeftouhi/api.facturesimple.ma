@@ -8,5 +8,8 @@ public interface AppUserRepository extends JpaRepository<AppUser, Long> {
 
     @EntityGraph(attributePaths = {"defaultTenant", "roles"})
     Optional<AppUser> findByEmail(String email);
+
+    @EntityGraph(attributePaths = {"defaultTenant", "roles"})
+    Optional<AppUser> findWithDefaultTenantById(Long id);
 }
 

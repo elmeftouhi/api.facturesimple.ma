@@ -59,6 +59,7 @@ Base config: `application.yml` sets `spring.profiles.default=local`.
 - `POST /v1/auth/tenants` (create tenant and auto-join)
 - `POST /v1/auth/tenants/invites` (create tenant invite code, owner/admin only)
 - `POST /v1/auth/tenants/join` (join with invite code)
+- `DELETE /v1/auth/tenants/{tenantId}/members/{memberUserId}` (owner/admin only)
 - `POST /v1/auth/logout`
 
 ### User
@@ -195,6 +196,16 @@ Response: same shape as login/register with the joined tenant selected.
 Notes:
 - Invite code is single-use and consumed atomically.
 - Invalid/expired/used codes return an error and do not join the tenant.
+
+### Remove tenant member (authenticated)
+
+`DELETE /v1/auth/tenants/{tenantId}/members/{memberUserId}`
+
+Notes:
+- Only tenant owner or global `ADMIN` can remove members.
+- Self-removal is blocked on this endpoint.
+- Tenant owner cannot be removed from their own tenant (transfer ownership first).
+- Response: `204 No Content`.
 
 ## Run
 

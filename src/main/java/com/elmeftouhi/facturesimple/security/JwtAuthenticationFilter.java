@@ -1,5 +1,6 @@
 package com.elmeftouhi.facturesimple.security;
 
+import com.elmeftouhi.facturesimple.user.UserTenantRepository;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -19,10 +20,16 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
     private final JwtService jwtService;
     private final TokenBlacklistService tokenBlacklistService;
+    private final UserTenantRepository userTenantRepository;
 
-    public JwtAuthenticationFilter(JwtService jwtService, TokenBlacklistService tokenBlacklistService) {
+    public JwtAuthenticationFilter(
+            JwtService jwtService,
+            TokenBlacklistService tokenBlacklistService,
+            UserTenantRepository userTenantRepository
+    ) {
         this.jwtService = jwtService;
         this.tokenBlacklistService = tokenBlacklistService;
+        this.userTenantRepository = userTenantRepository;
     }
 
     @Override
@@ -40,6 +47,12 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                 }
 
                 JwtPrincipal principal = jwtService.parse(token);
+                if (!userTenantRepository.existsByUserIdAndTenantId(principal.userId(), principal.selectedTenantId())) {
+                    SecurityContextHolder.clearContext();
+                    filterChain.doFilter(request, response);
+                    return;
+                }
+
                 UsernamePasswordAuthenticationToken authentication = new UsernamePasswordAuthenticationToken(
                         principal,
                         null,

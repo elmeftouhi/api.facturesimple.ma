@@ -17,6 +17,8 @@ import java.util.Locale;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
@@ -101,6 +103,16 @@ public class AuthController {
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void logout(@RequestHeader(HttpHeaders.AUTHORIZATION) String authorizationHeader) {
         authService.logout(authorizationHeader);
+    }
+
+    @DeleteMapping("/tenants/{tenantId}/members/{memberUserId}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void removeTenantMember(
+            @AuthenticationPrincipal JwtPrincipal principal,
+            @PathVariable Long tenantId,
+            @PathVariable Long memberUserId
+    ) {
+        authService.removeTenantMember(principal.userId(), tenantId, memberUserId);
     }
 
     private String resolveClientIp(HttpServletRequest request) {

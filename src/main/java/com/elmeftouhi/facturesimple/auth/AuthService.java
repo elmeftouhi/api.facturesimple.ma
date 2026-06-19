@@ -153,8 +153,7 @@ public class AuthService {
 
     @Transactional
     public TenantInviteResponse createTenantInviteForUser(Long userId, Long tenantId, Integer expiresInHours) {
-        AppUser user = appUserRepository.findById(userId)
-                .orElseThrow(() -> new ResourceNotFoundException("User not found"));
+        AppUser user = loadUserWithDefaultTenant(userId);
 
         Tenant tenant = tenantRepository.findById(tenantId)
                 .orElseThrow(() -> new ResourceNotFoundException("Tenant not found"));
@@ -181,6 +180,39 @@ public class AuthService {
     public void logout(String authorizationHeader) {
         String token = extractBearerToken(authorizationHeader);
         tokenBlacklistService.revoke(token, jwtService.extractExpiration(token));
+    }
+
+    @Transactional
+    public void removeTenantMember(Long callerUserId, Long tenantId, Long memberUserId) {
+        AppUser caller = loadUserWithDefaultTenant(callerUserId);
+
+        boolean isGlobalAdmin = caller.getRoles().contains(Role.ADMIN);
+        boolean isTenantOwner = caller.getDefaultTenant().getId().equals(tenantId);
+        if (!isGlobalAdmin && !isTenantOwner) {
+            throw new TenantAccessDeniedException("Only tenant owner or admin can remove members");
+        }
+
+        if (!isGlobalAdmin && !userTenantRepository.existsByUserIdAndTenantId(callerUserId, tenantId)) {
+            throw new TenantAccessDeniedException("You do not belong to this tenant");
+        }
+
+        if (callerUserId.equals(memberUserId)) {
+            throw new BadRequestException("Self-removal is not allowed from this endpoint");
+        }
+
+        AppUser member = loadUserWithDefaultTenant(memberUserId);
+
+        userTenantRepository.findByUserIdAndTenantId(memberUserId, tenantId)
+                .orElseThrow(() -> new ResourceNotFoundException("Member not found in this tenant"));
+
+        if (member.getDefaultTenant().getId().equals(tenantId)) {
+            throw new ConflictException("Cannot remove tenant owner. Transfer ownership first");
+        }
+
+        long deleted = userTenantRepository.deleteByUserIdAndTenantId(memberUserId, tenantId);
+        if (deleted == 0) {
+            throw new ResourceNotFoundException("Member not found in this tenant");
+        }
     }
 
     private AuthResponse buildAuthResponse(AppUser user, Long selectedTenantId) {
@@ -230,6 +262,11 @@ public class AuthService {
             }
         }
         throw new IllegalStateException("Unable to generate unique invite code");
+    }
+
+    private AppUser loadUserWithDefaultTenant(Long userId) {
+        return appUserRepository.findWithDefaultTenantById(userId)
+                .orElseThrow(() -> new ResourceNotFoundException("User not found"));
     }
 }
 
