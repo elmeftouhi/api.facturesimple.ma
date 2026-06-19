@@ -1,6 +1,5 @@
 package com.elmeftouhi.facturesimple.user;
 
-import com.elmeftouhi.facturesimple.multitenancy.TenantContext;
 import com.elmeftouhi.facturesimple.security.JwtPrincipal;
 import com.elmeftouhi.facturesimple.shared.exception.ResourceNotFoundException;
 import com.elmeftouhi.facturesimple.tenant.dto.TenantMembershipResponse;
@@ -26,7 +25,7 @@ public class UserProfileService {
                 user.getId(),
                 user.getEmail(),
                 user.getDefaultTenant().getId(),
-                TenantContext.getTenantId(),
+                principal.selectedTenantId(),
                 user.getRoles()
         );
     }

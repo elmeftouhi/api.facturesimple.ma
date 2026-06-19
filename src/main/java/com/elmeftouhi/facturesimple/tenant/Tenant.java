@@ -22,7 +22,7 @@ public class Tenant {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(nullable = false, length = 120)
+    @Column(nullable = false, length = 120, unique = true)
     private String name;
 
     @Column(name = "created_at", nullable = false, updatable = false)

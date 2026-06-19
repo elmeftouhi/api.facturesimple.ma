@@ -6,6 +6,8 @@ import com.elmeftouhi.facturesimple.auth.dto.RegisterRequest;
 import com.elmeftouhi.facturesimple.security.AppUserDetails;
 import com.elmeftouhi.facturesimple.security.JwtProperties;
 import com.elmeftouhi.facturesimple.security.JwtService;
+import com.elmeftouhi.facturesimple.security.TokenBlacklistService;
+import com.elmeftouhi.facturesimple.shared.exception.BadRequestException;
 import com.elmeftouhi.facturesimple.shared.exception.ConflictException;
 import com.elmeftouhi.facturesimple.shared.exception.ResourceNotFoundException;
 import com.elmeftouhi.facturesimple.shared.exception.TenantAccessDeniedException;
@@ -37,6 +39,7 @@ public class AuthService {
     private final AuthenticationManager authenticationManager;
     private final PasswordEncoder passwordEncoder;
     private final JwtService jwtService;
+    private final TokenBlacklistService tokenBlacklistService;
     private final JwtProperties jwtProperties;
 
     @Transactional
@@ -46,9 +49,7 @@ public class AuthService {
             throw new ConflictException("Email already exists");
         }
 
-        Tenant tenant = new Tenant();
-        tenant.setName(request.tenantName().trim());
-        tenant = tenantRepository.save(tenant);
+        Tenant tenant = createTenantOrThrow(request.tenantName());
 
         AppUser user = new AppUser();
         user.setEmail(normalizedEmail);
@@ -62,9 +63,7 @@ public class AuthService {
         userTenant.setTenant(tenant);
         userTenantRepository.save(userTenant);
 
-        Set<Long> allowedTenantIds = Set.of(tenant.getId());
-        String token = jwtService.generateToken(user, tenant.getId(), allowedTenantIds);
-        return new AuthResponse(token, "Bearer", jwtProperties.getExpirationMinutes(), tenant.getId(), allowedTenantIds);
+        return buildAuthResponse(user, tenant.getId());
     }
 
     @Transactional(readOnly = true)
@@ -78,15 +77,7 @@ public class AuthService {
         AppUser user = appUserRepository.findByEmail(principal.getUsername())
                 .orElseThrow(() -> new ResourceNotFoundException("User not found"));
 
-        Long selectedTenantId = user.getDefaultTenant().getId();
-        Set<Long> allowedTenantIds = userTenantRepository.findAllByUserId(user.getId())
-                .stream()
-                .map(userTenant -> userTenant.getTenant().getId())
-                .collect(Collectors.toCollection(HashSet::new));
-        allowedTenantIds.add(selectedTenantId);
-
-        String token = jwtService.generateToken(user, selectedTenantId, allowedTenantIds);
-        return new AuthResponse(token, "Bearer", jwtProperties.getExpirationMinutes(), selectedTenantId, allowedTenantIds);
+        return buildAuthResponse(user, user.getDefaultTenant().getId());
     }
 
     @Transactional(readOnly = true)
@@ -98,14 +89,82 @@ public class AuthService {
             throw new TenantAccessDeniedException("You do not belong to this tenant");
         }
 
+        return buildAuthResponse(user, tenantId);
+    }
+
+    @Transactional
+    public AuthResponse createTenantForUser(Long userId, String tenantName) {
+        AppUser user = appUserRepository.findById(userId)
+                .orElseThrow(() -> new ResourceNotFoundException("User not found"));
+
+        Tenant tenant = createTenantOrThrow(tenantName);
+
+        UserTenant userTenant = new UserTenant();
+        userTenant.setUser(user);
+        userTenant.setTenant(tenant);
+        userTenantRepository.save(userTenant);
+
+        return buildAuthResponse(user, tenant.getId());
+    }
+
+    @Transactional
+    public AuthResponse joinTenantForUser(Long userId, Long tenantId) {
+        AppUser user = appUserRepository.findById(userId)
+                .orElseThrow(() -> new ResourceNotFoundException("User not found"));
+
+        Tenant tenant = tenantRepository.findById(tenantId)
+                .orElseThrow(() -> new ResourceNotFoundException("Tenant not found"));
+
+        if (userTenantRepository.existsByUserIdAndTenantId(userId, tenantId)) {
+            throw new ConflictException("You already belong to this tenant");
+        }
+
+        UserTenant userTenant = new UserTenant();
+        userTenant.setUser(user);
+        userTenant.setTenant(tenant);
+        userTenantRepository.save(userTenant);
+
+        return buildAuthResponse(user, tenantId);
+    }
+
+    @Transactional(readOnly = true)
+    public void logout(String authorizationHeader) {
+        String token = extractBearerToken(authorizationHeader);
+        tokenBlacklistService.revoke(token, jwtService.extractExpiration(token));
+    }
+
+    private AuthResponse buildAuthResponse(AppUser user, Long selectedTenantId) {
         Set<Long> allowedTenantIds = userTenantRepository.findAllByUserId(user.getId())
                 .stream()
                 .map(userTenant -> userTenant.getTenant().getId())
                 .collect(Collectors.toCollection(HashSet::new));
         allowedTenantIds.add(user.getDefaultTenant().getId());
 
-        String token = jwtService.generateToken(user, tenantId, allowedTenantIds);
-        return new AuthResponse(token, "Bearer", jwtProperties.getExpirationMinutes(), tenantId, allowedTenantIds);
+        String token = jwtService.generateToken(user, selectedTenantId, allowedTenantIds);
+        return new AuthResponse(token, "Bearer", jwtProperties.getExpirationMinutes(), selectedTenantId, allowedTenantIds);
+    }
+
+    private Tenant createTenantOrThrow(String tenantName) {
+        String normalizedTenantName = tenantName.trim();
+        if (tenantRepository.existsByNameIgnoreCase(normalizedTenantName)) {
+            throw new ConflictException("Tenant name already exists");
+        }
+
+        Tenant tenant = new Tenant();
+        tenant.setName(normalizedTenantName);
+        return tenantRepository.save(tenant);
+    }
+
+    private String extractBearerToken(String authorizationHeader) {
+        if (authorizationHeader == null || !authorizationHeader.startsWith("Bearer ")) {
+            throw new BadRequestException("Missing or invalid Authorization header");
+        }
+
+        String token = authorizationHeader.substring("Bearer ".length()).trim();
+        if (token.isEmpty()) {
+            throw new BadRequestException("Missing bearer token");
+        }
+        return token;
     }
 }
 

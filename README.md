@@ -53,6 +53,9 @@ Base config: `application.yml` sets `spring.profiles.default=local`.
 - `POST /v1/auth/register`
 - `POST /v1/auth/login`
 - `POST /v1/auth/switch-tenant`
+- `POST /v1/auth/tenants` (create tenant and auto-join)
+- `POST /v1/auth/tenants/join` (join existing tenant)
+- `POST /v1/auth/logout`
 
 ### User
 
@@ -116,6 +119,14 @@ Response:
 
 Response: same shape as login/register but with updated `selectedTenantId` and new token.
 
+### Logout (authenticated)
+
+`POST /v1/auth/logout`
+
+No body. Send `Authorization: Bearer <access_token>`.
+
+Response: `204 No Content`.
+
 ### Create invoice
 
 `POST /v1/invoices`
@@ -129,6 +140,30 @@ Response: same shape as login/register but with updated `selectedTenantId` and n
 ```
 
 `tenant_id` is not accepted from client and is assigned from current tenant context.
+
+### Create another tenant (authenticated)
+
+`POST /v1/auth/tenants`
+
+```json
+{
+  "tenantName": "Beta LLC"
+}
+```
+
+Response: same shape as login/register with the new tenant selected.
+
+### Join existing tenant (authenticated)
+
+`POST /v1/auth/tenants/join`
+
+```json
+{
+  "tenantId": 2
+}
+```
+
+Response: same shape as login/register with the joined tenant selected.
 
 ## Run
 

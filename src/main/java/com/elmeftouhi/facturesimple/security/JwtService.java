@@ -45,32 +45,43 @@ public class JwtService {
     }
 
     public JwtPrincipal parse(String token) {
+        Claims claims = parseClaims(token);
+        Long userId = claims.get("uid", Long.class);
+        Long selectedTenantId = claims.get("tenantId", Long.class);
+        String username = claims.getSubject();
+        Collection<?> rawTenants = claims.get("tenants", Collection.class);
+
+        Set<Long> allowedTenantIds = new HashSet<>();
+        if (rawTenants != null) {
+            for (Object rawTenantId : rawTenants) {
+                if (rawTenantId instanceof Number n) {
+                    allowedTenantIds.add(n.longValue());
+                }
+            }
+        }
+
+        if (selectedTenantId == null || !allowedTenantIds.contains(selectedTenantId)) {
+            throw new IllegalArgumentException("Invalid tenant claim in JWT");
+        }
+
+        return new JwtPrincipal(userId, username, selectedTenantId, allowedTenantIds);
+    }
+
+    public Instant extractExpiration(String token) {
+        Date expiration = parseClaims(token).getExpiration();
+        if (expiration == null) {
+            throw new IllegalArgumentException("Invalid JWT token");
+        }
+        return expiration.toInstant();
+    }
+
+    private Claims parseClaims(String token) {
         try {
-            Claims claims = Jwts.parser()
+            return Jwts.parser()
                     .verifyWith(signingKey)
                     .build()
                     .parseSignedClaims(token)
                     .getPayload();
-
-            Long userId = claims.get("uid", Long.class);
-            Long selectedTenantId = claims.get("tenantId", Long.class);
-            String username = claims.getSubject();
-            Collection<?> rawTenants = claims.get("tenants", Collection.class);
-
-            Set<Long> allowedTenantIds = new HashSet<>();
-            if (rawTenants != null) {
-                for (Object rawTenantId : rawTenants) {
-                    if (rawTenantId instanceof Number n) {
-                        allowedTenantIds.add(n.longValue());
-                    }
-                }
-            }
-
-            if (selectedTenantId == null || !allowedTenantIds.contains(selectedTenantId)) {
-                throw new IllegalArgumentException("Invalid tenant claim in JWT");
-            }
-
-            return new JwtPrincipal(userId, username, selectedTenantId, allowedTenantIds);
         } catch (JwtException | IllegalArgumentException ex) {
             throw new IllegalArgumentException("Invalid JWT token", ex);
         }
