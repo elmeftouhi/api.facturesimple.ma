@@ -27,6 +27,7 @@ import java.util.HashSet;
 import java.util.Set;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
@@ -123,14 +124,7 @@ public class AuthService {
                 .orElseThrow(() -> new ResourceNotFoundException("User not found"));
 
         TenantInvite invite = tenantInviteRepository.findByCodeIgnoreCase(inviteCode.trim())
-                .orElseThrow(() -> new ResourceNotFoundException("Invite not found"));
-
-        if (invite.getUsedAt() != null) {
-            throw new ConflictException("Invite already used");
-        }
-        if (invite.getExpiresAt().isBefore(Instant.now())) {
-            throw new ConflictException("Invite has expired");
-        }
+                .orElseThrow(() -> new BadRequestException("Invalid or expired invite code"));
 
         Long tenantId = invite.getTenant().getId();
         Tenant tenant = invite.getTenant();
@@ -139,13 +133,20 @@ public class AuthService {
             throw new ConflictException("You already belong to this tenant");
         }
 
+        Instant now = Instant.now();
+        int consumed = tenantInviteRepository.consumeInviteIfActive(invite.getId(), now, now);
+        if (consumed == 0) {
+            throw new BadRequestException("Invalid or expired invite code");
+        }
+
         UserTenant userTenant = new UserTenant();
         userTenant.setUser(user);
         userTenant.setTenant(tenant);
-        userTenantRepository.save(userTenant);
-
-        invite.setUsedAt(Instant.now());
-        tenantInviteRepository.save(invite);
+        try {
+            userTenantRepository.save(userTenant);
+        } catch (DataIntegrityViolationException ex) {
+            throw new ConflictException("You already belong to this tenant");
+        }
 
         return buildAuthResponse(user, tenantId);
     }
@@ -155,12 +156,14 @@ public class AuthService {
         AppUser user = appUserRepository.findById(userId)
                 .orElseThrow(() -> new ResourceNotFoundException("User not found"));
 
-        if (!userTenantRepository.existsByUserIdAndTenantId(userId, tenantId)) {
-            throw new TenantAccessDeniedException("You do not belong to this tenant");
-        }
-
         Tenant tenant = tenantRepository.findById(tenantId)
                 .orElseThrow(() -> new ResourceNotFoundException("Tenant not found"));
+
+        boolean isGlobalAdmin = user.getRoles().contains(Role.ADMIN);
+        boolean isTenantOwner = user.getDefaultTenant().getId().equals(tenantId);
+        if (!isGlobalAdmin && !isTenantOwner) {
+            throw new TenantAccessDeniedException("Only tenant owner or admin can create invites");
+        }
 
         Instant expiresAt = Instant.now().plusSeconds(expiresInHours.longValue() * 3600);
 

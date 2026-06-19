@@ -37,6 +37,7 @@ Base config: `application.yml` sets `spring.profiles.default=local`.
   - `POST /v1/auth/register`
   - `POST /v1/auth/login`
 - Auth required for all other endpoints.
+- Login and tenant-join endpoints are rate-limited (in-memory, per app instance).
 - JWT contains:
   - `uid` (user id)
   - `sub` (email)
@@ -45,6 +46,8 @@ Base config: `application.yml` sets `spring.profiles.default=local`.
 - `TenantContext` is filled from JWT on each request and cleared after request.
 - Tenant-owned writes auto-assign `tenant_id` using JPA listener.
 - Tenant-owned reads/updates/deletes always query with current tenant id.
+- Tenant join requires an invite code (not tenant id).
+- Invite codes are one-time and expire automatically.
 
 ## Endpoints
 
@@ -54,7 +57,7 @@ Base config: `application.yml` sets `spring.profiles.default=local`.
 - `POST /v1/auth/login`
 - `POST /v1/auth/switch-tenant`
 - `POST /v1/auth/tenants` (create tenant and auto-join)
-- `POST /v1/auth/tenants/invites` (create tenant invite code)
+- `POST /v1/auth/tenants/invites` (create tenant invite code, owner/admin only)
 - `POST /v1/auth/tenants/join` (join with invite code)
 - `POST /v1/auth/logout`
 
@@ -165,6 +168,10 @@ Response: same shape as login/register with the new tenant selected.
 }
 ```
 
+Notes:
+- Only the tenant owner (user whose `defaultTenantId` is this tenant) or a global `ADMIN` can create invites.
+- Invite max lifetime is 168 hours.
+
 Example response:
 
 ```json
@@ -184,6 +191,10 @@ Example response:
 ```
 
 Response: same shape as login/register with the joined tenant selected.
+
+Notes:
+- Invite code is single-use and consumed atomically.
+- Invalid/expired/used codes return an error and do not join the tenant.
 
 ## Run
 
