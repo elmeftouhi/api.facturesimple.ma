@@ -8,11 +8,14 @@ import com.elmeftouhi.facturesimple.invoice.dto.InvoiceLineItemResponse;
 import com.elmeftouhi.facturesimple.invoice.dto.InvoicePaymentRequest;
 import com.elmeftouhi.facturesimple.invoice.dto.InvoicePaymentResponse;
 import com.elmeftouhi.facturesimple.invoice.dto.InvoiceResponse;
+import com.elmeftouhi.facturesimple.invoice.dto.InvoiceStatusUpdateRequest;
 import com.elmeftouhi.facturesimple.invoice.dto.InvoiceUpdateRequest;
 import com.elmeftouhi.facturesimple.multitenancy.TenantContext;
 import com.elmeftouhi.facturesimple.shared.exception.BadRequestException;
+import com.elmeftouhi.facturesimple.shared.exception.ConflictException;
 import com.elmeftouhi.facturesimple.shared.exception.ResourceNotFoundException;
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -46,11 +49,14 @@ public class InvoiceService {
         Invoice invoice = new Invoice();
         invoice.setInvoiceNumber(nextInvoiceNumber);
         invoice.setFormattedNumber(generateFormattedNumber(nextInvoiceNumber, request.invoiceDate().getYear()));
+        invoice.setReference(invoice.getFormattedNumber());
         invoice.setInvoiceDate(request.invoiceDate());
         invoice.setDueDate(request.dueDate());
         invoice.setCustomer(customer);
         invoice.setDescription(normalizeNullable(request.description()));
         invoice.setVatRate(request.vatRate());
+        invoice.setAmount(calculateAmount(request.lineItems()));
+        invoice.setStatus(InvoiceStatus.DRAFT);
 
         Invoice saved = invoiceRepository.save(invoice);
 
@@ -125,7 +131,28 @@ public class InvoiceService {
         Long tenantId = TenantContext.getRequiredTenantId();
         Invoice invoice = invoiceRepository.findByIdAndTenantId(id, tenantId)
                 .orElseThrow(() -> new ResourceNotFoundException("Invoice not found"));
+
+        if (invoice.getStatus() != InvoiceStatus.DRAFT && invoice.getStatus() != InvoiceStatus.CANCELLED) {
+            throw new ConflictException("Only draft or cancelled invoices can be deleted");
+        }
         invoiceRepository.delete(invoice);
+    }
+
+    @Transactional
+    public InvoiceResponse changeStatus(Long id, InvoiceStatusUpdateRequest request) {
+        Long tenantId = TenantContext.getRequiredTenantId();
+        Invoice invoice = invoiceRepository.findByIdAndTenantId(id, tenantId)
+                .orElseThrow(() -> new ResourceNotFoundException("Invoice not found"));
+
+        InvoiceStatus targetStatus = request.status();
+        if (invoice.getStatus() == targetStatus) {
+            return toResponse(invoice);
+        }
+
+        validateStatusTransition(invoice.getStatus(), targetStatus);
+        invoice.setStatus(targetStatus);
+
+        return toResponse(invoice);
     }
 
     @Transactional
@@ -182,6 +209,7 @@ public class InvoiceService {
                 invoice.getCustomer().getName(),
                 invoice.getDescription(),
                 invoice.getVatRate(),
+                invoice.getStatus(),
                 lineItems,
                 payments,
                 invoice.getTenantId(),
@@ -213,6 +241,27 @@ public class InvoiceService {
 
     private String generateFormattedNumber(Long invoiceNumber, int year) {
         return invoiceNumber + "-" + year;
+    }
+
+    private BigDecimal calculateAmount(List<InvoiceLineItemRequest> lineItems) {
+        return lineItems.stream()
+                .map(line -> line.quantity().multiply(line.unitPrice()))
+                .reduce(BigDecimal.ZERO, BigDecimal::add)
+                .setScale(2, RoundingMode.HALF_UP);
+    }
+
+    private void validateStatusTransition(InvoiceStatus current, InvoiceStatus target) {
+        boolean valid = switch (current) {
+            case DRAFT -> target == InvoiceStatus.PRINTED || target == InvoiceStatus.CANCELLED;
+            case PRINTED -> target == InvoiceStatus.DRAFT || target == InvoiceStatus.SOLD || target == InvoiceStatus.CANCELLED;
+            case SOLD -> target == InvoiceStatus.ARCHIVED;
+            case CANCELLED -> target == InvoiceStatus.ARCHIVED;
+            case ARCHIVED -> false;
+        };
+
+        if (!valid) {
+            throw new ConflictException("Invalid invoice status transition from " + current + " to " + target);
+        }
     }
 
     private String normalizeNullable(String value) {

@@ -4,6 +4,7 @@ import com.elmeftouhi.facturesimple.invoice.dto.InvoiceCreateRequest;
 import com.elmeftouhi.facturesimple.invoice.dto.InvoicePaymentRequest;
 import com.elmeftouhi.facturesimple.invoice.dto.InvoicePaymentResponse;
 import com.elmeftouhi.facturesimple.invoice.dto.InvoiceResponse;
+import com.elmeftouhi.facturesimple.invoice.dto.InvoiceStatusUpdateRequest;
 import com.elmeftouhi.facturesimple.invoice.dto.InvoiceUpdateRequest;
 import jakarta.validation.Valid;
 import java.util.List;
@@ -45,6 +46,11 @@ public class InvoiceController {
     @PutMapping("/{id}")
     public InvoiceResponse update(@PathVariable Long id, @Valid @RequestBody InvoiceUpdateRequest request) {
         return invoiceService.update(id, request);
+    }
+
+    @PutMapping("/{id}/status")
+    public InvoiceResponse changeStatus(@PathVariable Long id, @Valid @RequestBody InvoiceStatusUpdateRequest request) {
+        return invoiceService.changeStatus(id, request);
     }
 
     @PostMapping("/{id}/payments")

@@ -5,6 +5,8 @@ import com.elmeftouhi.facturesimple.multitenancy.BaseTenantAwareEntity;
 import jakarta.persistence.CascadeType;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.FetchType;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
@@ -13,7 +15,6 @@ import jakarta.persistence.Index;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.OneToMany;
-import jakarta.persistence.SequenceGenerator;
 import jakarta.persistence.Table;
 import jakarta.persistence.UniqueConstraint;
 import java.math.BigDecimal;
@@ -50,6 +51,10 @@ public class Invoice extends BaseTenantAwareEntity {
     @Column(name = "formatted_number", nullable = false, length = 80)
     private String formattedNumber;
 
+    // Legacy compatibility: existing databases still have NOT NULL on invoices.reference.
+    @Column(nullable = false, length = 80)
+    private String reference;
+
     @Column(name = "invoice_date", nullable = false)
     private LocalDate invoiceDate;
 
@@ -63,8 +68,16 @@ public class Invoice extends BaseTenantAwareEntity {
     @Column(name = "vat_rate", nullable = false, precision = 5, scale = 2)
     private BigDecimal vatRate;
 
+    // Kept for compatibility with existing schema; calculated from line items.
+    @Column(nullable = false, precision = 15, scale = 2)
+    private BigDecimal amount;
+
     @Column(name = "due_date")
     private LocalDate dueDate;
+
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 20)
+    private InvoiceStatus status = InvoiceStatus.DRAFT;
 
     @OneToMany(mappedBy = "invoice", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
     private List<InvoiceLineItem> lineItems = new ArrayList<>();

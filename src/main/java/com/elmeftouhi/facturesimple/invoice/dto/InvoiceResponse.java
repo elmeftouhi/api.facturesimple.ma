@@ -1,5 +1,6 @@
 package com.elmeftouhi.facturesimple.invoice.dto;
 
+import com.elmeftouhi.facturesimple.invoice.InvoiceStatus;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -15,6 +16,7 @@ public record InvoiceResponse(
         String customerName,
         String description,
         BigDecimal vatRate,
+        InvoiceStatus status,
         List<InvoiceLineItemResponse> lineItems,
         List<InvoicePaymentResponse> payments,
         Long tenantId,
