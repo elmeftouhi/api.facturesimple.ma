@@ -1,5 +1,7 @@
 package com.elmeftouhi.facturesimple.invoice.dto;
 
+import com.elmeftouhi.facturesimple.customer.dto.CustomerCreateRequest;
+import jakarta.validation.Valid;
 import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
@@ -8,7 +10,8 @@ import java.time.LocalDate;
 import java.util.List;
 
 public record InvoiceCreateRequest(
-        @NotNull Long customerId,
+        Long customerId,
+        @Valid CustomerCreateRequest newCustomer,
         @NotNull LocalDate invoiceDate,
         LocalDate dueDate,
         @Size(max = 500) String description,

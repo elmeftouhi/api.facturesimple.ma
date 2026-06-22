@@ -1,16 +1,21 @@
 package com.elmeftouhi.facturesimple.invoice;
 
 import com.elmeftouhi.facturesimple.customer.Customer;
+import com.elmeftouhi.facturesimple.customer.CustomerService;
 import com.elmeftouhi.facturesimple.customer.CustomerRepository;
+import com.elmeftouhi.facturesimple.customer.dto.CustomerResponse;
 import com.elmeftouhi.facturesimple.invoice.dto.InvoiceCreateRequest;
+import com.elmeftouhi.facturesimple.invoice.dto.InvoiceCustomerResponse;
 import com.elmeftouhi.facturesimple.invoice.dto.InvoiceLineItemRequest;
 import com.elmeftouhi.facturesimple.invoice.dto.InvoiceLineItemResponse;
 import com.elmeftouhi.facturesimple.invoice.dto.InvoicePaymentRequest;
 import com.elmeftouhi.facturesimple.invoice.dto.InvoicePaymentResponse;
 import com.elmeftouhi.facturesimple.invoice.dto.InvoiceResponse;
+import com.elmeftouhi.facturesimple.invoice.dto.InvoiceStatusChangeLogResponse;
 import com.elmeftouhi.facturesimple.invoice.dto.InvoiceStatusUpdateRequest;
 import com.elmeftouhi.facturesimple.invoice.dto.InvoiceUpdateRequest;
 import com.elmeftouhi.facturesimple.multitenancy.TenantContext;
+import com.elmeftouhi.facturesimple.security.JwtPrincipal;
 import com.elmeftouhi.facturesimple.shared.exception.BadRequestException;
 import com.elmeftouhi.facturesimple.shared.exception.ConflictException;
 import com.elmeftouhi.facturesimple.shared.exception.ResourceNotFoundException;
@@ -18,6 +23,8 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -29,14 +36,15 @@ public class InvoiceService {
     private final InvoiceLineItemRepository lineItemRepository;
     private final InvoicePaymentRepository paymentRepository;
     private final CustomerRepository customerRepository;
+    private final CustomerService customerService;
+    private final InvoiceStatusChangeLogRepository statusChangeLogRepository;
 
     @Transactional
     public InvoiceResponse create(InvoiceCreateRequest request) {
         Long tenantId = TenantContext.getRequiredTenantId();
 
-        // Validate customer exists and belongs to tenant
-        Customer customer = customerRepository.findByIdAndTenantId(request.customerId(), tenantId)
-                .orElseThrow(() -> new ResourceNotFoundException("Customer not found"));
+        // Resolve customer from existing id or create inline in the same transaction.
+        Customer customer = resolveCustomerForInvoice(request, tenantId);
 
         // Validate line items
         if (request.lineItems() == null || request.lineItems().isEmpty()) {
@@ -85,6 +93,24 @@ public class InvoiceService {
         }
 
         return toResponse(saved);
+    }
+
+    private Customer resolveCustomerForInvoice(InvoiceCreateRequest request, Long tenantId) {
+        boolean hasCustomerId = request.customerId() != null;
+        boolean hasNewCustomer = request.newCustomer() != null;
+
+        if (hasCustomerId == hasNewCustomer) {
+            throw new BadRequestException("Provide exactly one of customerId or newCustomer");
+        }
+
+        if (hasCustomerId) {
+            return customerRepository.findByIdAndTenantId(request.customerId(), tenantId)
+                    .orElseThrow(() -> new ResourceNotFoundException("Customer not found"));
+        }
+
+        CustomerResponse createdCustomer = customerService.create(request.newCustomer());
+        return customerRepository.findByIdAndTenantId(createdCustomer.id(), tenantId)
+                .orElseThrow(() -> new ResourceNotFoundException("Customer not found"));
     }
 
     @Transactional(readOnly = true)
@@ -144,15 +170,69 @@ public class InvoiceService {
         Invoice invoice = invoiceRepository.findByIdAndTenantId(id, tenantId)
                 .orElseThrow(() -> new ResourceNotFoundException("Invoice not found"));
 
+        InvoiceStatus oldStatus = invoice.getStatus();
         InvoiceStatus targetStatus = request.status();
-        if (invoice.getStatus() == targetStatus) {
+        if (oldStatus == targetStatus) {
             return toResponse(invoice);
         }
 
-        validateStatusTransition(invoice.getStatus(), targetStatus);
+        validateStatusTransition(oldStatus, targetStatus);
         invoice.setStatus(targetStatus);
+        saveStatusChangeLog(invoice, oldStatus, targetStatus);
 
         return toResponse(invoice);
+    }
+
+    @Transactional(readOnly = true)
+    public List<InvoiceStatusChangeLogResponse> findStatusHistory(Long invoiceId) {
+        Long tenantId = TenantContext.getRequiredTenantId();
+        invoiceRepository.findByIdAndTenantId(invoiceId, tenantId)
+                .orElseThrow(() -> new ResourceNotFoundException("Invoice not found"));
+
+        return statusChangeLogRepository.findByInvoice_IdAndTenantIdOrderByChangedAtDesc(invoiceId, tenantId)
+                .stream()
+                .map(this::toStatusChangeLogResponse)
+                .toList();
+    }
+
+    private void saveStatusChangeLog(Invoice invoice, InvoiceStatus oldStatus, InvoiceStatus newStatus) {
+        InvoiceStatusChangeLog log = new InvoiceStatusChangeLog();
+        log.setInvoice(invoice);
+        log.setOldStatus(oldStatus);
+        log.setNewStatus(newStatus);
+        log.setCreatedBy(resolveCurrentUsername());
+        statusChangeLogRepository.save(log);
+    }
+
+    private String resolveCurrentUsername() {
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        if (authentication == null || !authentication.isAuthenticated()) {
+            return "system";
+        }
+
+        Object principal = authentication.getPrincipal();
+        if (principal instanceof JwtPrincipal jwtPrincipal && jwtPrincipal.username() != null && !jwtPrincipal.username().isBlank()) {
+            return jwtPrincipal.username();
+        }
+        if (principal instanceof String principalName && !principalName.isBlank() && !"anonymousUser".equalsIgnoreCase(principalName)) {
+            return principalName;
+        }
+
+        String authName = authentication.getName();
+        if (authName != null && !authName.isBlank() && !"anonymousUser".equalsIgnoreCase(authName)) {
+            return authName;
+        }
+
+        return "system";
+    }
+
+    private InvoiceStatusChangeLogResponse toStatusChangeLogResponse(InvoiceStatusChangeLog log) {
+        return new InvoiceStatusChangeLogResponse(
+                log.getChangedAt(),
+                log.getCreatedBy(),
+                log.getOldStatus(),
+                log.getNewStatus()
+        );
     }
 
     @Transactional
@@ -205,8 +285,7 @@ public class InvoiceService {
                 invoice.getFormattedNumber(),
                 invoice.getInvoiceDate(),
                 invoice.getDueDate(),
-                invoice.getCustomer().getId(),
-                invoice.getCustomer().getName(),
+                toCustomerResponse(invoice.getCustomer()),
                 invoice.getDescription(),
                 invoice.getVatRate(),
                 invoice.getStatus(),
@@ -214,6 +293,19 @@ public class InvoiceService {
                 payments,
                 invoice.getTenantId(),
                 invoice.getCreatedAt()
+        );
+    }
+
+    private InvoiceCustomerResponse toCustomerResponse(Customer customer) {
+        return new InvoiceCustomerResponse(
+                customer.getId(),
+                customer.getName(),
+                customer.getEmail(),
+                customer.getPhone(),
+                customer.getAddress(),
+                customer.getTaxId(),
+                customer.getCategory() != null ? customer.getCategory().getId() : null,
+                customer.getCategory() != null ? customer.getCategory().getName() : null
         );
     }
 
@@ -256,7 +348,8 @@ public class InvoiceService {
             case PRINTED -> target == InvoiceStatus.DRAFT || target == InvoiceStatus.SOLD || target == InvoiceStatus.CANCELLED;
             case SOLD -> target == InvoiceStatus.ARCHIVED;
             case CANCELLED -> target == InvoiceStatus.ARCHIVED;
-            case ARCHIVED -> false;
+            case ARCHIVED -> target == InvoiceStatus.FINAL;
+            case FINAL -> false;
         };
 
         if (!valid) {

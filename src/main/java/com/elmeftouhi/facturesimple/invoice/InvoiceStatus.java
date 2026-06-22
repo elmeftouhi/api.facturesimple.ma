@@ -5,6 +5,7 @@ public enum InvoiceStatus {
     PRINTED,
     SOLD,
     ARCHIVED,
-    CANCELLED
+    CANCELLED,
+    FINAL
 }
 

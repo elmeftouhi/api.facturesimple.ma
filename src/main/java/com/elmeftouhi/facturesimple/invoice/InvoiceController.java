@@ -4,6 +4,7 @@ import com.elmeftouhi.facturesimple.invoice.dto.InvoiceCreateRequest;
 import com.elmeftouhi.facturesimple.invoice.dto.InvoicePaymentRequest;
 import com.elmeftouhi.facturesimple.invoice.dto.InvoicePaymentResponse;
 import com.elmeftouhi.facturesimple.invoice.dto.InvoiceResponse;
+import com.elmeftouhi.facturesimple.invoice.dto.InvoiceStatusChangeLogResponse;
 import com.elmeftouhi.facturesimple.invoice.dto.InvoiceStatusUpdateRequest;
 import com.elmeftouhi.facturesimple.invoice.dto.InvoiceUpdateRequest;
 import jakarta.validation.Valid;
@@ -51,6 +52,11 @@ public class InvoiceController {
     @PutMapping("/{id}/status")
     public InvoiceResponse changeStatus(@PathVariable Long id, @Valid @RequestBody InvoiceStatusUpdateRequest request) {
         return invoiceService.changeStatus(id, request);
+    }
+
+    @GetMapping("/{id}/status-history")
+    public List<InvoiceStatusChangeLogResponse> findStatusHistory(@PathVariable Long id) {
+        return invoiceService.findStatusHistory(id);
     }
 
     @PostMapping("/{id}/payments")
