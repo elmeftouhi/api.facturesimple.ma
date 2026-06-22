@@ -8,6 +8,7 @@ import com.elmeftouhi.facturesimple.invoice.dto.InvoiceCreateRequest;
 import com.elmeftouhi.facturesimple.invoice.dto.InvoiceCustomerResponse;
 import com.elmeftouhi.facturesimple.invoice.dto.InvoiceLineItemRequest;
 import com.elmeftouhi.facturesimple.invoice.dto.InvoiceLineItemResponse;
+import com.elmeftouhi.facturesimple.invoice.dto.InvoicePageResponse;
 import com.elmeftouhi.facturesimple.invoice.dto.InvoicePaymentRequest;
 import com.elmeftouhi.facturesimple.invoice.dto.InvoicePaymentResponse;
 import com.elmeftouhi.facturesimple.invoice.dto.InvoiceResponse;
@@ -21,8 +22,14 @@ import com.elmeftouhi.facturesimple.shared.exception.ConflictException;
 import com.elmeftouhi.facturesimple.shared.exception.ResourceNotFoundException;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.LocalDate;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
@@ -120,6 +127,33 @@ public class InvoiceService {
                 .stream()
                 .map(this::toResponse)
                 .toList();
+    }
+
+    @Transactional(readOnly = true)
+    public InvoicePageResponse search(InvoiceStatus status, LocalDate fromDate, LocalDate toDate, Long customerId, int page, int size) {
+        if (page < 0) {
+            throw new BadRequestException("Page must be greater than or equal to 0");
+        }
+        if (size < 1 || size > 100) {
+            throw new BadRequestException("Size must be between 1 and 100");
+        }
+        if (fromDate != null && toDate != null && fromDate.isAfter(toDate)) {
+            throw new BadRequestException("fromDate must be before or equal to toDate");
+        }
+
+        Long tenantId = TenantContext.getRequiredTenantId();
+        Specification<Invoice> spec = buildSearchSpecification(tenantId, status, fromDate, toDate, customerId);
+        Pageable pageable = PageRequest.of(page, size, Sort.by(Sort.Order.desc("invoiceDate"), Sort.Order.desc("id")));
+        Page<Invoice> invoicePage = invoiceRepository.findAll(spec, pageable);
+
+        return new InvoicePageResponse(
+                invoicePage.getContent().stream().map(this::toResponse).toList(),
+                invoicePage.getNumber(),
+                invoicePage.getSize(),
+                invoicePage.getTotalElements(),
+                invoicePage.getTotalPages(),
+                invoicePage.hasNext()
+        );
     }
 
     @Transactional(readOnly = true)
@@ -279,6 +313,9 @@ public class InvoiceService {
                 .map(this::toPaymentResponse)
                 .toList();
 
+        BigDecimal paidAmount = calculatePaidAmount(payments);
+        BigDecimal remainingAmount = calculateRemainingAmount(invoice.getAmount(), paidAmount);
+
         return new InvoiceResponse(
                 invoice.getId(),
                 invoice.getInvoiceNumber(),
@@ -288,12 +325,63 @@ public class InvoiceService {
                 toCustomerResponse(invoice.getCustomer()),
                 invoice.getDescription(),
                 invoice.getVatRate(),
+                paidAmount,
+                remainingAmount,
+                resolvePaymentStatus(invoice.getAmount(), remainingAmount),
                 invoice.getStatus(),
                 lineItems,
                 payments,
                 invoice.getTenantId(),
                 invoice.getCreatedAt()
         );
+    }
+
+    private Specification<Invoice> buildSearchSpecification(
+            Long tenantId,
+            InvoiceStatus status,
+            LocalDate fromDate,
+            LocalDate toDate,
+            Long customerId
+    ) {
+        Specification<Invoice> spec = (root, query, cb) -> cb.equal(root.get("tenantId"), tenantId);
+
+        if (status != null) {
+            spec = spec.and((root, query, cb) -> cb.equal(root.get("status"), status));
+        }
+        if (fromDate != null) {
+            spec = spec.and((root, query, cb) -> cb.greaterThanOrEqualTo(root.get("invoiceDate"), fromDate));
+        }
+        if (toDate != null) {
+            spec = spec.and((root, query, cb) -> cb.lessThanOrEqualTo(root.get("invoiceDate"), toDate));
+        }
+        if (customerId != null) {
+            spec = spec.and((root, query, cb) -> cb.equal(root.get("customer").get("id"), customerId));
+        }
+
+        return spec;
+    }
+
+    private BigDecimal calculatePaidAmount(List<InvoicePaymentResponse> payments) {
+        return payments.stream()
+                .map(InvoicePaymentResponse::paidAmount)
+                .reduce(BigDecimal.ZERO, BigDecimal::add)
+                .setScale(2, RoundingMode.HALF_UP);
+    }
+
+    private BigDecimal calculateRemainingAmount(BigDecimal invoiceAmount, BigDecimal paidAmount) {
+        return invoiceAmount.subtract(paidAmount)
+                .max(BigDecimal.ZERO)
+                .setScale(2, RoundingMode.HALF_UP);
+    }
+
+    private InvoicePaymentStatus resolvePaymentStatus(BigDecimal invoiceAmount, BigDecimal remainingAmount) {
+        if (remainingAmount.compareTo(invoiceAmount) == 0) {
+            return InvoicePaymentStatus.UNPAID;
+        }
+        if (remainingAmount.compareTo(BigDecimal.ZERO) == 0) {
+            return InvoicePaymentStatus.PAID;
+        }
+        return InvoicePaymentStatus.PARTIAL;
     }
 
     private InvoiceCustomerResponse toCustomerResponse(Customer customer) {

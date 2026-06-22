@@ -10,6 +10,8 @@ import com.elmeftouhi.facturesimple.customer.category.CustomerCategoryRepository
 import com.elmeftouhi.facturesimple.customer.dto.CustomerCreateRequest;
 import com.elmeftouhi.facturesimple.invoice.dto.InvoiceCreateRequest;
 import com.elmeftouhi.facturesimple.invoice.dto.InvoiceLineItemRequest;
+import com.elmeftouhi.facturesimple.invoice.dto.InvoicePageResponse;
+import com.elmeftouhi.facturesimple.invoice.dto.InvoicePaymentRequest;
 import com.elmeftouhi.facturesimple.invoice.dto.InvoiceResponse;
 import com.elmeftouhi.facturesimple.invoice.dto.InvoiceStatusChangeLogResponse;
 import com.elmeftouhi.facturesimple.invoice.dto.InvoiceStatusUpdateRequest;
@@ -201,6 +203,68 @@ class InvoiceServiceInlineCustomerIT {
         assertThat(history.get(0).newStatus()).isEqualTo(InvoiceStatus.SOLD);
         assertThat(history.get(1).oldStatus()).isEqualTo(InvoiceStatus.DRAFT);
         assertThat(history.get(1).newStatus()).isEqualTo(InvoiceStatus.PRINTED);
+    }
+
+    @Test
+    void findByIdReturnsPaymentSummary() {
+        InvoiceResponse createdInvoice = createDraftInvoice();
+
+        invoiceService.addPayment(createdInvoice.id(), new InvoicePaymentRequest(
+                PaymentMethod.CASH,
+                "PAY-1",
+                LocalDate.now(),
+                new BigDecimal("40.00")
+        ));
+
+        InvoiceResponse reloadedInvoice = invoiceService.findById(createdInvoice.id());
+
+        assertThat(reloadedInvoice.paidAmount()).isEqualByComparingTo("40.00");
+        assertThat(reloadedInvoice.remainingAmount()).isEqualByComparingTo("60.00");
+        assertThat(reloadedInvoice.paymentStatus()).isEqualTo(InvoicePaymentStatus.PARTIAL);
+    }
+
+    @Test
+    void searchFiltersByStatusAndPaginates() {
+        CustomerCategory category = createCategory();
+        Customer customer = new Customer();
+        customer.setName("Search Customer " + System.nanoTime());
+        customer.setCategory(category);
+        Customer savedCustomer = customerRepository.save(customer);
+
+        InvoiceResponse invoice1 = invoiceService.create(new InvoiceCreateRequest(
+                savedCustomer.getId(),
+                null,
+                LocalDate.now(),
+                LocalDate.now().plusDays(7),
+                "Search invoice 1",
+                new BigDecimal("20.00"),
+                List.of(new InvoiceLineItemRequest("ITEM-S1", "Service", new BigDecimal("1.00"), new BigDecimal("100.00"))),
+                List.of()
+        ));
+        InvoiceResponse invoice2 = invoiceService.create(new InvoiceCreateRequest(
+                savedCustomer.getId(),
+                null,
+                LocalDate.now().plusDays(1),
+                LocalDate.now().plusDays(8),
+                "Search invoice 2",
+                new BigDecimal("20.00"),
+                List.of(new InvoiceLineItemRequest("ITEM-S2", "Service", new BigDecimal("1.00"), new BigDecimal("100.00"))),
+                List.of()
+        ));
+
+        invoiceService.changeStatus(invoice1.id(), new InvoiceStatusUpdateRequest(InvoiceStatus.PRINTED));
+        invoiceService.changeStatus(invoice2.id(), new InvoiceStatusUpdateRequest(InvoiceStatus.PRINTED));
+
+        InvoicePageResponse firstPage = invoiceService.search(InvoiceStatus.PRINTED, null, null, savedCustomer.getId(), 0, 1);
+        InvoicePageResponse secondPage = invoiceService.search(InvoiceStatus.PRINTED, null, null, savedCustomer.getId(), 1, 1);
+
+        assertThat(firstPage.totalElements()).isEqualTo(2);
+        assertThat(firstPage.totalPages()).isEqualTo(2);
+        assertThat(firstPage.content()).hasSize(1);
+        assertThat(firstPage.hasNext()).isTrue();
+
+        assertThat(secondPage.totalElements()).isEqualTo(2);
+        assertThat(secondPage.content()).hasSize(1);
     }
 
     private InvoiceResponse createDraftInvoice() {

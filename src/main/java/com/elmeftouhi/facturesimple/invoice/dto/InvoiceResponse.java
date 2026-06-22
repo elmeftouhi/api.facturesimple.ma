@@ -1,5 +1,6 @@
 package com.elmeftouhi.facturesimple.invoice.dto;
 
+import com.elmeftouhi.facturesimple.invoice.InvoicePaymentStatus;
 import com.elmeftouhi.facturesimple.invoice.InvoiceStatus;
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -15,6 +16,9 @@ public record InvoiceResponse(
         com.elmeftouhi.facturesimple.invoice.dto.InvoiceCustomerResponse customer,
         String description,
         BigDecimal vatRate,
+        BigDecimal paidAmount,
+        BigDecimal remainingAmount,
+        InvoicePaymentStatus paymentStatus,
         InvoiceStatus status,
         List<InvoiceLineItemResponse> lineItems,
         List<InvoicePaymentResponse> payments,
