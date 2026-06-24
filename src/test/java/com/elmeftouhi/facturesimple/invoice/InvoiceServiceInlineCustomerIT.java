@@ -128,10 +128,75 @@ class InvoiceServiceInlineCustomerIT {
                 List.of()
         );
 
-        assertThatThrownBy(() -> invoiceService.create(request)).isInstanceOf(NullPointerException.class);
+        assertThatThrownBy(() -> invoiceService.create(request)).isInstanceOf(RuntimeException.class);
 
         assertThat(customerRepository.findAllByTenantIdOrderByIdDesc(TENANT_ID)).hasSize(customersBefore);
         assertThat(invoiceRepository.findAllByTenantIdOrderByInvoiceDateDescIdDesc(TENANT_ID)).hasSize(invoicesBefore);
+    }
+
+    @Test
+    void createDraftInvoiceHasNoOfficialNumber() {
+        InvoiceResponse draft = createDraftInvoice();
+        assertThat(draft.invoiceNumber()).isNotNull();
+        assertThat(draft.invoiceNumber()).isLessThan(0);
+        assertThat(draft.formattedNumber()).startsWith("DRAFT-");
+        assertThat(draft.status()).isEqualTo(InvoiceStatus.DRAFT);
+    }
+
+    @Test
+    void changeStatusFromDraftAssignsOfficialNumber() {
+        InvoiceResponse draft = createDraftInvoice();
+        assertThat(draft.invoiceNumber()).isLessThan(0);
+
+        InvoiceResponse printed = invoiceService.changeStatus(draft.id(), new InvoiceStatusUpdateRequest(InvoiceStatus.PRINTED));
+        assertThat(printed.invoiceNumber()).isNotNull();
+        assertThat(printed.invoiceNumber()).isGreaterThan(0);
+        assertThat(printed.formattedNumber()).isNotNull();
+    }
+
+    @Test
+    void deletedDraftDoesNotGapOfficialNumberSequence() {
+        InvoiceResponse draft1 = createDraftInvoice();
+        InvoiceResponse draft2 = createDraftInvoice();
+
+        // Confirm draft1 → get an official number
+        InvoiceResponse printed1 = invoiceService.changeStatus(draft1.id(), new InvoiceStatusUpdateRequest(InvoiceStatus.PRINTED));
+        Long firstOfficialNumber = printed1.invoiceNumber();
+
+        // Delete draft2 without confirming it — must not create a gap
+        invoiceService.delete(draft2.id());
+
+        // Confirm a brand-new draft → should follow directly after firstOfficialNumber
+        InvoiceResponse draft3 = createDraftInvoice();
+        InvoiceResponse printed3 = invoiceService.changeStatus(draft3.id(), new InvoiceStatusUpdateRequest(InvoiceStatus.PRINTED));
+        assertThat(printed3.invoiceNumber()).isEqualTo(firstOfficialNumber + 1);
+    }
+
+    @Test
+    void changeStatusRejectsBackdatedInvoice() {
+        // First, confirm an invoice dated today
+        InvoiceResponse draft1 = createDraftInvoiceWithDate(LocalDate.now());
+        invoiceService.changeStatus(draft1.id(), new InvoiceStatusUpdateRequest(InvoiceStatus.PRINTED));
+
+        // Try to confirm a draft with a date before the most recent official invoice
+        InvoiceResponse draft2 = createDraftInvoiceWithDate(LocalDate.now().minusDays(1));
+        assertThatThrownBy(() -> invoiceService.changeStatus(draft2.id(), new InvoiceStatusUpdateRequest(InvoiceStatus.PRINTED)))
+                .isInstanceOf(ConflictException.class)
+                .hasMessageContaining("backdate");
+    }
+
+    private InvoiceResponse createDraftInvoiceWithDate(LocalDate date) {
+        CustomerCategory category = createCategory();
+        return invoiceService.create(new InvoiceCreateRequest(
+                null,
+                new CustomerCreateRequest("Date Customer " + System.nanoTime(), "date@example.com", null, null, null, category.getId()),
+                date,
+                date.plusDays(10),
+                "Date test invoice",
+                new BigDecimal("20.00"),
+                List.of(new InvoiceLineItemRequest("ITEM-D", "Service", new BigDecimal("1.00"), new BigDecimal("100.00"))),
+                List.of()
+        ));
     }
 
     @Test
@@ -244,8 +309,8 @@ class InvoiceServiceInlineCustomerIT {
         InvoiceResponse invoice2 = invoiceService.create(new InvoiceCreateRequest(
                 savedCustomer.getId(),
                 null,
-                LocalDate.now().plusDays(1),
-                LocalDate.now().plusDays(8),
+                LocalDate.now(),
+                LocalDate.now().plusDays(7),
                 "Search invoice 2",
                 new BigDecimal("20.00"),
                 List.of(new InvoiceLineItemRequest("ITEM-S2", "Service", new BigDecimal("1.00"), new BigDecimal("100.00"))),

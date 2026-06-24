@@ -8,9 +8,12 @@ import com.elmeftouhi.facturesimple.invoice.dto.InvoiceResponse;
 import com.elmeftouhi.facturesimple.invoice.dto.InvoiceStatusChangeLogResponse;
 import com.elmeftouhi.facturesimple.invoice.dto.InvoiceStatusUpdateRequest;
 import com.elmeftouhi.facturesimple.invoice.dto.InvoiceUpdateRequest;
+import com.elmeftouhi.facturesimple.shared.exception.BadRequestException;
 import jakarta.validation.Valid;
 import java.time.LocalDate;
+import java.util.Arrays;
 import java.util.List;
+import java.util.Locale;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -38,20 +41,31 @@ public class InvoiceController {
     }
 
     @GetMapping
-    public List<InvoiceResponse> findAll() {
-        return invoiceService.findAll();
-    }
-
-    @GetMapping("/search")
-    public InvoicePageResponse search(
-            @RequestParam(required = false) InvoiceStatus status,
+    public InvoicePageResponse findAll(
+            @RequestParam(required = false) String status,
             @RequestParam(required = false) LocalDate fromDate,
             @RequestParam(required = false) LocalDate toDate,
             @RequestParam(required = false) Long customerId,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size
     ) {
-        return invoiceService.search(status, fromDate, toDate, customerId, page, size);
+        return invoiceService.search(parseStatus(status), fromDate, toDate, customerId, page, size);
+    }
+
+    private InvoiceStatus parseStatus(String status) {
+        if (status == null || status.isBlank()) {
+            return null;
+        }
+
+        try {
+            return InvoiceStatus.valueOf(status.trim().toUpperCase(Locale.ROOT));
+        } catch (IllegalArgumentException ex) {
+            String allowed = Arrays.stream(InvoiceStatus.values())
+                    .map(Enum::name)
+                    .toList()
+                    .toString();
+            throw new BadRequestException("Invalid status '" + status + "'. Allowed values: " + allowed);
+        }
     }
 
     @GetMapping("/{id}")

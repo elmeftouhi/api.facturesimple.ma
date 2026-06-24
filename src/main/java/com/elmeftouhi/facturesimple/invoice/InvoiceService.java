@@ -24,6 +24,7 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -58,13 +59,13 @@ public class InvoiceService {
             throw new BadRequestException("Invoice must contain at least one line item");
         }
 
-        // Generate invoice number
-        Long nextInvoiceNumber = invoiceRepository.getMaxInvoiceNumberForTenant(tenantId) + 1;
-
         Invoice invoice = new Invoice();
-        invoice.setInvoiceNumber(nextInvoiceNumber);
-        invoice.setFormattedNumber(generateFormattedNumber(nextInvoiceNumber, request.invoiceDate().getYear()));
-        invoice.setReference(invoice.getFormattedNumber());
+        // DRAFT invoices do not consume official numbering; use unique negative placeholders.
+        Long draftNumber = generateNextDraftNumber(tenantId);
+        String draftPlaceholder = generateDraftPlaceholder();
+        invoice.setInvoiceNumber(draftNumber);
+        invoice.setFormattedNumber(draftPlaceholder); // placeholder to satisfy DB NOT NULL/UNIQUE; overwritten on confirmation
+        invoice.setReference(draftPlaceholder);       // placeholder to satisfy DB NOT NULL/UNIQUE; overwritten on confirmation
         invoice.setInvoiceDate(request.invoiceDate());
         invoice.setDueDate(request.dueDate());
         invoice.setCustomer(customer);
@@ -137,14 +138,33 @@ public class InvoiceService {
         if (size < 1 || size > 100) {
             throw new BadRequestException("Size must be between 1 and 100");
         }
-        if (fromDate != null && toDate != null && fromDate.isAfter(toDate)) {
+
+        // Apply defaults: current year range if dates not provided
+        LocalDate effectiveFrom = (fromDate != null) ? fromDate : LocalDate.of(LocalDate.now().getYear(), 1, 1);
+        LocalDate effectiveTo   = (toDate   != null) ? toDate   : LocalDate.now();
+
+        if (effectiveFrom.isAfter(effectiveTo)) {
             throw new BadRequestException("fromDate must be before or equal to toDate");
         }
 
         Long tenantId = TenantContext.getRequiredTenantId();
-        Specification<Invoice> spec = buildSearchSpecification(tenantId, status, fromDate, toDate, customerId);
-        Pageable pageable = PageRequest.of(page, size, Sort.by(Sort.Order.desc("invoiceDate"), Sort.Order.desc("id")));
-        Page<Invoice> invoicePage = invoiceRepository.findAll(spec, pageable);
+        Specification<Invoice> baseSpec = buildSearchSpecification(tenantId, status, effectiveFrom, effectiveTo, customerId);
+
+        // Push DRAFT-first + invoiceNumber asc sort to DB via CASE expression (correct across pages)
+        Specification<Invoice> specWithOrder = (root, query, cb) -> {
+            if (query != null && !Long.class.equals(query.getResultType())) {
+                query.orderBy(
+                    cb.asc(cb.selectCase()
+                        .when(cb.equal(root.get("status"), InvoiceStatus.DRAFT), 0)
+                        .otherwise(1)),
+                    cb.asc(root.get("invoiceNumber"))
+                );
+            }
+            return baseSpec.toPredicate(root, query, cb);
+        };
+
+        Pageable pageable = PageRequest.of(page, size);
+        Page<Invoice> invoicePage = invoiceRepository.findAll(specWithOrder, pageable);
 
         return new InvoicePageResponse(
                 invoicePage.getContent().stream().map(this::toResponse).toList(),
@@ -211,6 +231,13 @@ public class InvoiceService {
         }
 
         validateStatusTransition(oldStatus, targetStatus);
+
+        // When leaving DRAFT: validate date ordering and assign the official invoice number.
+        if (oldStatus == InvoiceStatus.DRAFT) {
+            validateInvoiceDateOrdering(invoice.getInvoiceDate(), tenantId);
+            assignOfficialNumber(invoice, tenantId);
+        }
+
         invoice.setStatus(targetStatus);
         saveStatusChangeLog(invoice, oldStatus, targetStatus);
 
@@ -227,6 +254,34 @@ public class InvoiceService {
                 .stream()
                 .map(this::toStatusChangeLogResponse)
                 .toList();
+    }
+
+    private void validateInvoiceDateOrdering(LocalDate invoiceDate, Long tenantId) {
+        invoiceRepository.findMaxOfficialInvoiceDateByTenantId(tenantId).ifPresent(maxDate -> {
+            if (invoiceDate.isBefore(maxDate)) {
+                throw new ConflictException(
+                    "Invoice date " + invoiceDate + " is before the most recent official invoice date " + maxDate +
+                    ". You cannot backdate a confirmed invoice."
+                );
+            }
+        });
+    }
+
+    private void assignOfficialNumber(Invoice invoice, Long tenantId) {
+        Long nextNumber = invoiceRepository.getMaxInvoiceNumberForTenant(tenantId) + 1;
+        String formatted = generateFormattedNumber(nextNumber, invoice.getInvoiceDate().getYear());
+        invoice.setInvoiceNumber(nextNumber);
+        invoice.setFormattedNumber(formatted);
+        invoice.setReference(formatted);
+    }
+
+    private Long generateNextDraftNumber(Long tenantId) {
+        Long minNumber = invoiceRepository.getMinInvoiceNumberForTenant(tenantId);
+        return minNumber > 0 ? -1L : minNumber - 1L;
+    }
+
+    private String generateDraftPlaceholder() {
+        return "DRAFT-" + UUID.randomUUID();
     }
 
     private void saveStatusChangeLog(Invoice invoice, InvoiceStatus oldStatus, InvoiceStatus newStatus) {

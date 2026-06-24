@@ -45,14 +45,16 @@ public class Invoice extends BaseTenantAwareEntity {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(name = "invoice_number", nullable = false)
+    // Null for DRAFT invoices; assigned when transitioning out of DRAFT.
+    @Column(name = "invoice_number")
     private Long invoiceNumber;
 
-    @Column(name = "formatted_number", nullable = false, length = 80)
+    // Null for DRAFT invoices; assigned when transitioning out of DRAFT.
+    @Column(name = "formatted_number", length = 80)
     private String formattedNumber;
 
-    // Legacy compatibility: existing databases still have NOT NULL on invoices.reference.
-    @Column(nullable = false, length = 80)
+    // Null for DRAFT invoices; assigned when transitioning out of DRAFT.
+    @Column(length = 80)
     private String reference;
 
     @Column(name = "invoice_date", nullable = false)
