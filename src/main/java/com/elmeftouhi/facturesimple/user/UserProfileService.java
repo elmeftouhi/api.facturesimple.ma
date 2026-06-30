@@ -1,12 +1,16 @@
 package com.elmeftouhi.facturesimple.user;
 
 import com.elmeftouhi.facturesimple.security.JwtPrincipal;
+import com.elmeftouhi.facturesimple.shared.exception.BadRequestException;
 import com.elmeftouhi.facturesimple.shared.exception.ResourceNotFoundException;
+import com.elmeftouhi.facturesimple.tenant.Tenant;
 import com.elmeftouhi.facturesimple.tenant.dto.TenantMembershipResponse;
 import com.elmeftouhi.facturesimple.user.dto.MeResponse;
+import com.elmeftouhi.facturesimple.user.dto.PasswordChangeRequest;
 import com.elmeftouhi.facturesimple.user.dto.UserProfileUpdateRequest;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -16,6 +20,7 @@ public class UserProfileService {
 
     private final AppUserRepository appUserRepository;
     private final UserTenantRepository userTenantRepository;
+    private final PasswordEncoder passwordEncoder;
 
     @Transactional(readOnly = true)
     public MeResponse me(JwtPrincipal principal) {
@@ -84,6 +89,15 @@ public class UserProfileService {
             user.setPhone(request.phone().trim().isEmpty() ? null : request.phone().trim());
         }
 
+        if (request.defaultTenantId() != null) {
+            Tenant tenant = userTenantRepository.findAllByUserId(userId).stream()
+                    .filter(ut -> ut.getTenant().getId().equals(request.defaultTenantId()))
+                    .map(ut -> ut.getTenant())
+                    .findFirst()
+                    .orElseThrow(() -> new BadRequestException("User does not have membership access to this tenant"));
+            user.setDefaultTenant(tenant);
+        }
+
         user.setUpdatedAt(java.time.Instant.now());
         AppUser savedUser = appUserRepository.save(user);
 
@@ -100,5 +114,18 @@ public class UserProfileService {
                 savedUser.getRoles()
         );
     }
-}
 
+    @Transactional
+    public void changePassword(Long userId, PasswordChangeRequest request) {
+        AppUser user = appUserRepository.findById(userId)
+                .orElseThrow(() -> new ResourceNotFoundException("User not found"));
+
+        if (!passwordEncoder.matches(request.oldPassword(), user.getPasswordHash())) {
+            throw new BadRequestException("Current password does not match");
+        }
+
+        user.setPasswordHash(passwordEncoder.encode(request.newPassword()));
+        user.setUpdatedAt(java.time.Instant.now());
+        appUserRepository.save(user);
+    }
+}
