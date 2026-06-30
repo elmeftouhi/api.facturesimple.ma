@@ -1,9 +1,12 @@
 package com.elmeftouhi.facturesimple.invoice;
 
+import com.elmeftouhi.facturesimple.company.Company;
+import com.elmeftouhi.facturesimple.company.CompanyRepository;
 import com.elmeftouhi.facturesimple.customer.Customer;
 import com.elmeftouhi.facturesimple.customer.CustomerService;
 import com.elmeftouhi.facturesimple.customer.CustomerRepository;
 import com.elmeftouhi.facturesimple.customer.dto.CustomerResponse;
+import com.elmeftouhi.facturesimple.invoice.dto.InvoiceCompanyResponse;
 import com.elmeftouhi.facturesimple.invoice.dto.InvoiceCreateRequest;
 import com.elmeftouhi.facturesimple.invoice.dto.InvoiceCustomerResponse;
 import com.elmeftouhi.facturesimple.invoice.dto.InvoiceLineItemRequest;
@@ -46,6 +49,7 @@ public class InvoiceService {
     private final CustomerRepository customerRepository;
     private final CustomerService customerService;
     private final InvoiceStatusChangeLogRepository statusChangeLogRepository;
+    private final CompanyRepository companyRepository;
 
     @Transactional
     public InvoiceResponse create(InvoiceCreateRequest request) {
@@ -371,12 +375,18 @@ public class InvoiceService {
         BigDecimal paidAmount = calculatePaidAmount(payments);
         BigDecimal remainingAmount = calculateRemainingAmount(invoice.getAmount(), paidAmount);
 
+        // Fetch company information for the current tenant
+        InvoiceCompanyResponse companyResponse = companyRepository.findByTenantId(invoice.getTenantId())
+                .map(this::toCompanyResponse)
+                .orElse(null);
+
         return new InvoiceResponse(
                 invoice.getId(),
                 invoice.getInvoiceNumber(),
                 invoice.getFormattedNumber(),
                 invoice.getInvoiceDate(),
                 invoice.getDueDate(),
+                companyResponse,
                 toCustomerResponse(invoice.getCustomer()),
                 invoice.getDescription(),
                 invoice.getVatRate(),
@@ -449,6 +459,23 @@ public class InvoiceService {
                 customer.getTaxId(),
                 customer.getCategory() != null ? customer.getCategory().getId() : null,
                 customer.getCategory() != null ? customer.getCategory().getName() : null
+        );
+    }
+
+    private InvoiceCompanyResponse toCompanyResponse(Company company) {
+        return new InvoiceCompanyResponse(
+                company.getId(),
+                company.getName(),
+                company.getEmail(),
+                company.getPhone(),
+                company.getAddress(),
+                company.getTaxId(),
+                company.getRegistreCommerce(),
+                company.getLogo(),
+                company.getWebsite(),
+                company.getCurrency(),
+                company.getDefaultVatRate(),
+                company.getPaymentTermsInDays()
         );
     }
 

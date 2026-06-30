@@ -1,0 +1,50 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: facturesimple-db
+    environment:
+      POSTGRES_DB: facturesimple
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: admin123
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - facturesimple-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U admin"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: facturesimple-api
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      DB_URL: jdbc:postgresql://postgres:5432/facturesimple
+      DB_USERNAME: admin
+      DB_PASSWORD: admin123
+      JWT_SECRET: your-secret-key-must-be-at-least-32-characters-long
+      JWT_EXPIRATION_MINUTES: 120
+    ports:
+      - "8080:8080"
+    networks:
+      - facturesimple-network
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+
+networks:
+  facturesimple-network:
+    driver: bridge
+

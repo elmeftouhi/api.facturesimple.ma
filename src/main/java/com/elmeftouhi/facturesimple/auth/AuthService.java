@@ -19,6 +19,7 @@ import com.elmeftouhi.facturesimple.tenant.TenantRepository;
 import com.elmeftouhi.facturesimple.user.AppUser;
 import com.elmeftouhi.facturesimple.user.AppUserRepository;
 import com.elmeftouhi.facturesimple.user.Role;
+import com.elmeftouhi.facturesimple.user.UserStatus;
 import com.elmeftouhi.facturesimple.user.UserTenant;
 import com.elmeftouhi.facturesimple.user.UserTenantRepository;
 import java.security.SecureRandom;
@@ -65,6 +66,10 @@ public class AuthService {
         AppUser user = new AppUser();
         user.setEmail(normalizedEmail);
         user.setPasswordHash(passwordEncoder.encode(request.password()));
+        user.setFirstName(request.firstName() != null ? request.firstName().trim() : null);
+        user.setLastName(request.lastName() != null ? request.lastName().trim() : null);
+        user.setPhone(request.phone() != null ? request.phone().trim() : null);
+        user.setStatus(UserStatus.ACTIVE);
         user.getRoles().add(Role.USER);
         user.setDefaultTenant(tenant);
         user = appUserRepository.save(user);

@@ -13,6 +13,7 @@ public record InvoiceResponse(
         String formattedNumber,
         LocalDate invoiceDate,
         LocalDate dueDate,
+        InvoiceCompanyResponse company,
         com.elmeftouhi.facturesimple.invoice.dto.InvoiceCustomerResponse customer,
         String description,
         BigDecimal vatRate,
