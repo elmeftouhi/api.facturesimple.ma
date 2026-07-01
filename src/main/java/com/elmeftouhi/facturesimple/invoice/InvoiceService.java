@@ -34,7 +34,6 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
-import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -89,6 +88,7 @@ public class InvoiceService {
         invoice.setReference(draftPlaceholder);       // placeholder to satisfy DB NOT NULL/UNIQUE; overwritten on confirmation
         invoice.setInvoiceDate(invoiceDate);
         invoice.setDueDate(request.dueDate());
+        invoice.setTemplateUsed(resolveInvoiceTemplate(tenantId, request));
         invoice.setCustomer(customer);
         invoice.setDescription(normalizeNullable(request.description()));
         invoice.setVatRate(request.vatRate());
@@ -122,6 +122,16 @@ public class InvoiceService {
         }
 
         return toResponse(saved);
+    }
+
+    private InvoiceTemplate resolveInvoiceTemplate(Long tenantId, InvoiceCreateRequest request) {
+        if (request.templateChoice() != null) {
+            return request.templateChoice();
+        }
+
+        return companyRepository.findByTenantId(tenantId)
+                .map(Company::getDefaultInvoiceTemplate)
+                .orElse(InvoiceTemplate.CLASSIC);
     }
 
     private Customer resolveCustomerForInvoice(InvoiceCreateRequest request, Long tenantId) {
@@ -196,7 +206,7 @@ public class InvoiceService {
 
         // Push DRAFT-first + invoiceNumber asc sort to DB via CASE expression (correct across pages)
         Specification<Invoice> specWithOrder = (root, query, cb) -> {
-            if (query != null && !Long.class.equals(query.getResultType())) {
+            if (!Long.class.equals(query.getResultType())) {
                 query.orderBy(
                     cb.asc(cb.selectCase()
                         .when(cb.equal(root.get("status"), InvoiceStatus.DRAFT), 0)
@@ -468,6 +478,7 @@ public class InvoiceService {
                 invoice.getFormattedNumber(),
                 invoice.getInvoiceDate(),
                 invoice.getDueDate(),
+                resolveInvoiceTemplate(invoice.getTemplateUsed()),
                 companyResponse,
                 toCustomerResponse(invoice.getCustomer()),
                 invoice.getDescription(),
@@ -483,6 +494,10 @@ public class InvoiceService {
                 invoice.getExercice() != null ? invoice.getExercice().getId() : null,
                 invoice.getExercice() != null ? invoice.getExercice().getName() : null
         );
+    }
+
+    private InvoiceTemplate resolveInvoiceTemplate(InvoiceTemplate template) {
+        return template != null ? template : InvoiceTemplate.CLASSIC;
     }
 
     private Specification<Invoice> buildSearchSpecification(

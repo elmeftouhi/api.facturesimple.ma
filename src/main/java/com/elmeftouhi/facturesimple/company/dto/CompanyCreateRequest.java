@@ -1,5 +1,6 @@
 package com.elmeftouhi.facturesimple.company.dto;
 
+import com.elmeftouhi.facturesimple.invoice.InvoiceTemplate;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
@@ -16,6 +17,7 @@ public record CompanyCreateRequest(
         @Size(max = 255) String website,
         @Size(max = 3) String currency,
         @Size(max = 10) String language,
+        InvoiceTemplate defaultInvoiceTemplate,
         BigDecimal defaultVatRate,
         Integer paymentTermsInDays,
         @Size(max = 500) String description

@@ -177,11 +177,13 @@ Response: `204 No Content`.
 {
   "reference": "INV-2026-001",
   "description": "Consulting services",
-  "amount": 1500.00
+  "amount": 1500.00,
+  "templateChoice": "MODERN"
 }
 ```
 
 `tenant_id` is not accepted from client and is assigned from current tenant context.
+If `templateChoice` is omitted, the invoice uses the tenant/company default template, or `CLASSIC` when no default is configured.
 
 ### Create customer
 

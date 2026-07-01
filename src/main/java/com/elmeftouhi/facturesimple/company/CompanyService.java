@@ -4,6 +4,7 @@ import com.elmeftouhi.facturesimple.company.dto.CompanyBankRequest;
 import com.elmeftouhi.facturesimple.company.dto.CompanyBankResponse;
 import com.elmeftouhi.facturesimple.company.dto.CompanyCreateRequest;
 import com.elmeftouhi.facturesimple.company.dto.CompanyResponse;
+import com.elmeftouhi.facturesimple.invoice.InvoiceTemplate;
 import com.elmeftouhi.facturesimple.multitenancy.TenantContext;
 import com.elmeftouhi.facturesimple.shared.exception.BadRequestException;
 import com.elmeftouhi.facturesimple.shared.exception.ResourceNotFoundException;
@@ -221,6 +222,11 @@ public class CompanyService {
         company.setWebsite(request.website());
         company.setCurrency(request.currency() != null ? request.currency() : "MAD");
         company.setLanguage(request.language() != null ? request.language() : "fr");
+        if (request.defaultInvoiceTemplate() != null) {
+            company.setDefaultInvoiceTemplate(request.defaultInvoiceTemplate());
+        } else if (company.getDefaultInvoiceTemplate() == null) {
+            company.setDefaultInvoiceTemplate(InvoiceTemplate.CLASSIC);
+        }
         company.setDefaultVatRate(request.defaultVatRate());
         company.setPaymentTermsInDays(request.paymentTermsInDays());
         company.setDescription(request.description());
@@ -239,6 +245,7 @@ public class CompanyService {
                 company.getWebsite(),
                 company.getCurrency(),
                 company.getLanguage(),
+                resolveDefaultInvoiceTemplate(company.getDefaultInvoiceTemplate()),
                 company.getDefaultVatRate(),
                 company.getPaymentTermsInDays(),
                 company.getDescription(),
@@ -259,6 +266,10 @@ public class CompanyService {
                 bank.getIsDefault(),
                 bank.getCreatedAt()
         );
+    }
+
+    private InvoiceTemplate resolveDefaultInvoiceTemplate(InvoiceTemplate template) {
+        return template != null ? template : InvoiceTemplate.CLASSIC;
     }
 }
 

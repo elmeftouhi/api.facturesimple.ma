@@ -78,6 +78,10 @@ public class Invoice extends BaseTenantAwareEntity {
     private LocalDate dueDate;
 
     @Enumerated(EnumType.STRING)
+    @Column(name = "template_used", length = 30)
+    private InvoiceTemplate templateUsed = InvoiceTemplate.CLASSIC;
+
+    @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
     private InvoiceStatus status = InvoiceStatus.DRAFT;
 

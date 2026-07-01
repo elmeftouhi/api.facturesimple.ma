@@ -2,6 +2,7 @@ package com.elmeftouhi.facturesimple.invoice.dto;
 
 import com.elmeftouhi.facturesimple.invoice.InvoicePaymentStatus;
 import com.elmeftouhi.facturesimple.invoice.InvoiceStatus;
+import com.elmeftouhi.facturesimple.invoice.InvoiceTemplate;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -13,6 +14,7 @@ public record InvoiceResponse(
         String formattedNumber,
         LocalDate invoiceDate,
         LocalDate dueDate,
+        InvoiceTemplate templateUsed,
         InvoiceCompanyResponse company,
         com.elmeftouhi.facturesimple.invoice.dto.InvoiceCustomerResponse customer,
         String description,

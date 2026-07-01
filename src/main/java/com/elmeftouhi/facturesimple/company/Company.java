@@ -1,9 +1,12 @@
 package com.elmeftouhi.facturesimple.company;
 
+import com.elmeftouhi.facturesimple.invoice.InvoiceTemplate;
 import com.elmeftouhi.facturesimple.multitenancy.BaseTenantAwareEntity;
 import jakarta.persistence.CascadeType;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.FetchType;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
@@ -58,7 +61,7 @@ public class Company extends BaseTenantAwareEntity {
     @Column(length = 500)
     private String logo;
 
-    @Column(length = 255)
+    @Column
     private String website;
 
     @Column(length = 3)
@@ -66,6 +69,10 @@ public class Company extends BaseTenantAwareEntity {
 
     @Column(length = 10)
     private String language = "fr";
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "default_invoice_template", length = 30)
+    private InvoiceTemplate defaultInvoiceTemplate = InvoiceTemplate.CLASSIC;
 
     @Column(name = "default_vat_rate", precision = 5, scale = 2)
     private BigDecimal defaultVatRate;

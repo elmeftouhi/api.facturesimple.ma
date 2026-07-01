@@ -8,6 +8,9 @@ import com.elmeftouhi.facturesimple.customer.CustomerRepository;
 import com.elmeftouhi.facturesimple.customer.category.CustomerCategory;
 import com.elmeftouhi.facturesimple.customer.category.CustomerCategoryRepository;
 import com.elmeftouhi.facturesimple.customer.dto.CustomerCreateRequest;
+import com.elmeftouhi.facturesimple.exercice.Exercice;
+import com.elmeftouhi.facturesimple.exercice.ExerciceRepository;
+import com.elmeftouhi.facturesimple.exercice.ExerciceStatus;
 import com.elmeftouhi.facturesimple.invoice.dto.InvoiceCreateRequest;
 import com.elmeftouhi.facturesimple.invoice.dto.InvoiceLineItemRequest;
 import com.elmeftouhi.facturesimple.invoice.dto.InvoicePageResponse;
@@ -53,15 +56,42 @@ class InvoiceServiceInlineCustomerIT {
     @Autowired
     private InvoiceStatusChangeLogRepository statusChangeLogRepository;
 
+    @Autowired
+    private ExerciceRepository exerciceRepository;
+
     @BeforeEach
     void setUpTenant() {
         TenantContext.setTenantId(TENANT_ID);
+        ensureOpenExerciceExists();
     }
 
     @AfterEach
     void clearTenant() {
         TenantContext.clear();
         SecurityContextHolder.clearContext();
+    }
+
+    private void ensureOpenExerciceExists() {
+        LocalDate today = LocalDate.now();
+        List<Exercice> matching = exerciceRepository.findAllByTenantIdOrderByStartDateDesc(TENANT_ID).stream()
+                .filter(exercice -> !exercice.getStartDate().isAfter(today) && !exercice.getEndDate().isBefore(today))
+                .toList();
+
+        if (matching.isEmpty()) {
+            Exercice exercice = new Exercice();
+            exercice.setName("FY-" + today.getYear());
+            exercice.setStartDate(LocalDate.of(today.getYear(), 1, 1));
+            exercice.setEndDate(LocalDate.of(today.getYear(), 12, 31));
+            exercice.setStatus(ExerciceStatus.OPEN);
+            exerciceRepository.save(exercice);
+            return;
+        }
+
+        Exercice exercice = matching.get(0);
+        if (exercice.getStatus() != ExerciceStatus.OPEN) {
+            exercice.setStatus(ExerciceStatus.OPEN);
+            exerciceRepository.save(exercice);
+        }
     }
 
     @Test
@@ -75,6 +105,7 @@ class InvoiceServiceInlineCustomerIT {
                 LocalDate.now().plusDays(10),
                 "Inline customer invoice",
                 new BigDecimal("20.00"),
+                InvoiceTemplate.MODERN,
                 List.of(new InvoiceLineItemRequest("ITEM-1", "Service", new BigDecimal("1.00"), new BigDecimal("100.00"))),
                 List.of()
         );
@@ -83,6 +114,7 @@ class InvoiceServiceInlineCustomerIT {
 
         assertThat(response.customer()).isNotNull();
         assertThat(response.customer().id()).isNotNull();
+        assertThat(response.templateUsed()).isEqualTo(InvoiceTemplate.MODERN);
         assertThat(customerRepository.findByIdAndTenantId(response.customer().id(), TENANT_ID)).isPresent();
         assertThat(invoiceRepository.findByIdAndTenantId(response.id(), TENANT_ID)).isPresent();
     }
@@ -102,6 +134,7 @@ class InvoiceServiceInlineCustomerIT {
                 LocalDate.now().plusDays(10),
                 "Invalid request",
                 new BigDecimal("20.00"),
+                null,
                 List.of(new InvoiceLineItemRequest("ITEM-1", "Service", new BigDecimal("1.00"), new BigDecimal("100.00"))),
                 List.of()
         );
@@ -124,6 +157,7 @@ class InvoiceServiceInlineCustomerIT {
                 LocalDate.now().plusDays(10),
                 "Will fail",
                 new BigDecimal("20.00"),
+                null,
                 List.of(new InvoiceLineItemRequest("ITEM-1", "Service", new BigDecimal("1.00"), new BigDecimal("100.00"))),
                 List.of()
         );
@@ -141,6 +175,7 @@ class InvoiceServiceInlineCustomerIT {
         assertThat(draft.invoiceNumber()).isLessThan(0);
         assertThat(draft.formattedNumber()).startsWith("DRAFT-");
         assertThat(draft.status()).isEqualTo(InvoiceStatus.DRAFT);
+        assertThat(draft.templateUsed()).isEqualTo(InvoiceTemplate.CLASSIC);
     }
 
     @Test
@@ -194,6 +229,7 @@ class InvoiceServiceInlineCustomerIT {
                 date.plusDays(10),
                 "Date test invoice",
                 new BigDecimal("20.00"),
+                null,
                 List.of(new InvoiceLineItemRequest("ITEM-D", "Service", new BigDecimal("1.00"), new BigDecimal("100.00"))),
                 List.of()
         ));
@@ -303,6 +339,7 @@ class InvoiceServiceInlineCustomerIT {
                 LocalDate.now().plusDays(7),
                 "Search invoice 1",
                 new BigDecimal("20.00"),
+                null,
                 List.of(new InvoiceLineItemRequest("ITEM-S1", "Service", new BigDecimal("1.00"), new BigDecimal("100.00"))),
                 List.of()
         ));
@@ -313,6 +350,7 @@ class InvoiceServiceInlineCustomerIT {
                 LocalDate.now().plusDays(7),
                 "Search invoice 2",
                 new BigDecimal("20.00"),
+                null,
                 List.of(new InvoiceLineItemRequest("ITEM-S2", "Service", new BigDecimal("1.00"), new BigDecimal("100.00"))),
                 List.of()
         ));
@@ -320,8 +358,8 @@ class InvoiceServiceInlineCustomerIT {
         invoiceService.changeStatus(invoice1.id(), new InvoiceStatusUpdateRequest(InvoiceStatus.PRINTED));
         invoiceService.changeStatus(invoice2.id(), new InvoiceStatusUpdateRequest(InvoiceStatus.PRINTED));
 
-        InvoicePageResponse firstPage = invoiceService.search(InvoiceStatus.PRINTED, null, null, savedCustomer.getId(), 0, 1);
-        InvoicePageResponse secondPage = invoiceService.search(InvoiceStatus.PRINTED, null, null, savedCustomer.getId(), 1, 1);
+        InvoicePageResponse firstPage = invoiceService.search(InvoiceStatus.PRINTED, null, null, savedCustomer.getId(), null, 0, 1);
+        InvoicePageResponse secondPage = invoiceService.search(InvoiceStatus.PRINTED, null, null, savedCustomer.getId(), null, 1, 1);
 
         assertThat(firstPage.totalElements()).isEqualTo(2);
         assertThat(firstPage.totalPages()).isEqualTo(2);
@@ -341,6 +379,7 @@ class InvoiceServiceInlineCustomerIT {
                 LocalDate.now().plusDays(10),
                 "Status flow invoice",
                 new BigDecimal("20.00"),
+                null,
                 List.of(new InvoiceLineItemRequest("ITEM-STATUS", "Service", new BigDecimal("1.00"), new BigDecimal("100.00"))),
                 List.of()
         ));

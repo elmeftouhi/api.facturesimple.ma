@@ -1,5 +1,6 @@
 package com.elmeftouhi.facturesimple.company.dto;
 
+import com.elmeftouhi.facturesimple.invoice.InvoiceTemplate;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
@@ -16,6 +17,7 @@ public record CompanyResponse(
         String website,
         String currency,
         String language,
+        InvoiceTemplate defaultInvoiceTemplate,
         BigDecimal defaultVatRate,
         Integer paymentTermsInDays,
         String description,
