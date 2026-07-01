@@ -64,6 +64,9 @@ public class Company extends BaseTenantAwareEntity {
     @Column(length = 3)
     private String currency = "MAD";
 
+    @Column(length = 10)
+    private String language = "fr";
+
     @Column(name = "default_vat_rate", precision = 5, scale = 2)
     private BigDecimal defaultVatRate;
 

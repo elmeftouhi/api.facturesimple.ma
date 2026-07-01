@@ -562,6 +562,7 @@ public class InvoiceService {
                 company.getLogo(),
                 company.getWebsite(),
                 company.getCurrency(),
+                company.getLanguage(),
                 company.getDefaultVatRate(),
                 company.getPaymentTermsInDays()
         );

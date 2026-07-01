@@ -15,6 +15,7 @@ public record CompanyResponse(
         String logo,
         String website,
         String currency,
+        String language,
         BigDecimal defaultVatRate,
         Integer paymentTermsInDays,
         String description,

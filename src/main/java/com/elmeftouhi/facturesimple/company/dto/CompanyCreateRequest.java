@@ -15,6 +15,7 @@ public record CompanyCreateRequest(
         @Size(max = 500) String logo,
         @Size(max = 255) String website,
         @Size(max = 3) String currency,
+        @Size(max = 10) String language,
         BigDecimal defaultVatRate,
         Integer paymentTermsInDays,
         @Size(max = 500) String description

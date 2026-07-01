@@ -220,6 +220,7 @@ public class CompanyService {
         company.setLogo(request.logo());
         company.setWebsite(request.website());
         company.setCurrency(request.currency() != null ? request.currency() : "MAD");
+        company.setLanguage(request.language() != null ? request.language() : "fr");
         company.setDefaultVatRate(request.defaultVatRate());
         company.setPaymentTermsInDays(request.paymentTermsInDays());
         company.setDescription(request.description());
@@ -237,6 +238,7 @@ public class CompanyService {
                 company.getLogo(),
                 company.getWebsite(),
                 company.getCurrency(),
+                company.getLanguage(),
                 company.getDefaultVatRate(),
                 company.getPaymentTermsInDays(),
                 company.getDescription(),
