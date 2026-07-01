@@ -46,10 +46,11 @@ public class InvoiceController {
             @RequestParam(required = false) LocalDate fromDate,
             @RequestParam(required = false) LocalDate toDate,
             @RequestParam(required = false) Long customerId,
+            @RequestParam(required = false) Long exerciceId,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size
     ) {
-        return invoiceService.search(parseStatus(status), fromDate, toDate, customerId, page, size);
+        return invoiceService.search(parseStatus(status), fromDate, toDate, customerId, exerciceId, page, size);
     }
 
     private InvoiceStatus parseStatus(String status) {

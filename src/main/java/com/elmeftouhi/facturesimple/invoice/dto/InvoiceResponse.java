@@ -24,7 +24,8 @@ public record InvoiceResponse(
         List<InvoiceLineItemResponse> lineItems,
         List<InvoicePaymentResponse> payments,
         Long tenantId,
-        Instant createdAt
+        Instant createdAt,
+        Long exerciceId,
+        String exerciceName
 ) {
 }
-

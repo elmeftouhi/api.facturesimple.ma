@@ -27,6 +27,7 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
@@ -39,6 +40,10 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.elmeftouhi.facturesimple.exercice.Exercice;
+import com.elmeftouhi.facturesimple.exercice.ExerciceStatus;
+import com.elmeftouhi.facturesimple.exercice.ExerciceRepository;
+
 @Service
 @RequiredArgsConstructor
 public class InvoiceService {
@@ -50,6 +55,7 @@ public class InvoiceService {
     private final CustomerService customerService;
     private final InvoiceStatusChangeLogRepository statusChangeLogRepository;
     private final CompanyRepository companyRepository;
+    private final ExerciceRepository exerciceRepository;
 
     @Transactional
     public InvoiceResponse create(InvoiceCreateRequest request) {
@@ -64,13 +70,22 @@ public class InvoiceService {
         }
 
         Invoice invoice = new Invoice();
+        // Resolve active Exercice for the invoice date
+        LocalDate invoiceDate = request.invoiceDate();
+        Exercice exercice = exerciceRepository.findExerciceForDate(tenantId, invoiceDate)
+                .orElseThrow(() -> new BadRequestException("No fiscal year (exercice) defined for the invoice date " + invoiceDate + ". Please open one first."));
+        if (exercice.getStatus() == ExerciceStatus.CLOSED) {
+            throw new BadRequestException("The fiscal year (exercice) " + exercice.getName() + " is closed. Cannot create invoices in it.");
+        }
+        invoice.setExercice(exercice);
+
         // DRAFT invoices do not consume official numbering; use unique negative placeholders.
         Long draftNumber = generateNextDraftNumber(tenantId);
         String draftPlaceholder = generateDraftPlaceholder();
         invoice.setInvoiceNumber(draftNumber);
         invoice.setFormattedNumber(draftPlaceholder); // placeholder to satisfy DB NOT NULL/UNIQUE; overwritten on confirmation
         invoice.setReference(draftPlaceholder);       // placeholder to satisfy DB NOT NULL/UNIQUE; overwritten on confirmation
-        invoice.setInvoiceDate(request.invoiceDate());
+        invoice.setInvoiceDate(invoiceDate);
         invoice.setDueDate(request.dueDate());
         invoice.setCustomer(customer);
         invoice.setDescription(normalizeNullable(request.description()));
@@ -135,7 +150,15 @@ public class InvoiceService {
     }
 
     @Transactional(readOnly = true)
-    public InvoicePageResponse search(InvoiceStatus status, LocalDate fromDate, LocalDate toDate, Long customerId, int page, int size) {
+    public InvoicePageResponse search(
+            InvoiceStatus status,
+            LocalDate fromDate,
+            LocalDate toDate,
+            Long customerId,
+            Long exerciceId,
+            int page,
+            int size
+    ) {
         if (page < 0) {
             throw new BadRequestException("Page must be greater than or equal to 0");
         }
@@ -143,16 +166,31 @@ public class InvoiceService {
             throw new BadRequestException("Size must be between 1 and 100");
         }
 
-        // Apply defaults: current year range if dates not provided
-        LocalDate effectiveFrom = (fromDate != null) ? fromDate : LocalDate.of(LocalDate.now().getYear(), 1, 1);
-        LocalDate effectiveTo   = (toDate   != null) ? toDate   : LocalDate.now();
+        Long tenantId = TenantContext.getRequiredTenantId();
 
-        if (effectiveFrom.isAfter(effectiveTo)) {
+        Long filterExerciceId = exerciceId;
+        LocalDate effectiveFrom = fromDate;
+        LocalDate effectiveTo = toDate;
+
+        // If no filters are provided, default to the current active open Exercice if one exists
+        if (filterExerciceId == null && fromDate == null && toDate == null) {
+            Optional<Exercice> activeExercice = exerciceRepository.findAllByTenantIdOrderByStartDateDesc(tenantId).stream()
+                    .filter(e -> e.getStatus() == ExerciceStatus.OPEN)
+                    .findFirst();
+            if (activeExercice.isPresent()) {
+                filterExerciceId = activeExercice.get().getId();
+            } else {
+                // Fall back to calendar dates default if no open Exercice exists
+                effectiveFrom = LocalDate.of(LocalDate.now().getYear(), 1, 1);
+                effectiveTo = LocalDate.now();
+            }
+        }
+
+        if (effectiveFrom != null && effectiveTo != null && effectiveFrom.isAfter(effectiveTo)) {
             throw new BadRequestException("fromDate must be before or equal to toDate");
         }
 
-        Long tenantId = TenantContext.getRequiredTenantId();
-        Specification<Invoice> baseSpec = buildSearchSpecification(tenantId, status, effectiveFrom, effectiveTo, customerId);
+        Specification<Invoice> baseSpec = buildSearchSpecification(tenantId, status, effectiveFrom, effectiveTo, customerId, filterExerciceId);
 
         // Push DRAFT-first + invoiceNumber asc sort to DB via CASE expression (correct across pages)
         Specification<Invoice> specWithOrder = (root, query, cb) -> {
@@ -194,7 +232,17 @@ public class InvoiceService {
         Invoice invoice = invoiceRepository.findByIdAndTenantId(id, tenantId)
                 .orElseThrow(() -> new ResourceNotFoundException("Invoice not found"));
 
+        if (invoice.getExercice() != null && invoice.getExercice().getStatus() == ExerciceStatus.CLOSED) {
+            throw new BadRequestException("This invoice belongs to a closed fiscal year (exercice) and cannot be modified.");
+        }
+
         if (request.invoiceDate() != null) {
+            Exercice newExercice = exerciceRepository.findExerciceForDate(tenantId, request.invoiceDate())
+                    .orElseThrow(() -> new BadRequestException("No fiscal year (exercice) defined for the date " + request.invoiceDate() + ". Please open one first."));
+            if (newExercice.getStatus() == ExerciceStatus.CLOSED) {
+                throw new BadRequestException("The fiscal year (exercice) " + newExercice.getName() + " is closed. Cannot assign invoices to it.");
+            }
+            invoice.setExercice(newExercice);
             invoice.setInvoiceDate(request.invoiceDate());
         }
         if (request.dueDate() != null) {
@@ -216,6 +264,10 @@ public class InvoiceService {
         Invoice invoice = invoiceRepository.findByIdAndTenantId(id, tenantId)
                 .orElseThrow(() -> new ResourceNotFoundException("Invoice not found"));
 
+        if (invoice.getExercice() != null && invoice.getExercice().getStatus() == ExerciceStatus.CLOSED) {
+            throw new BadRequestException("This invoice belongs to a closed fiscal year (exercice) and cannot be deleted.");
+        }
+
         if (invoice.getStatus() != InvoiceStatus.DRAFT && invoice.getStatus() != InvoiceStatus.CANCELLED) {
             throw new ConflictException("Only draft or cancelled invoices can be deleted");
         }
@@ -227,6 +279,10 @@ public class InvoiceService {
         Long tenantId = TenantContext.getRequiredTenantId();
         Invoice invoice = invoiceRepository.findByIdAndTenantId(id, tenantId)
                 .orElseThrow(() -> new ResourceNotFoundException("Invoice not found"));
+
+        if (invoice.getExercice() != null && invoice.getExercice().getStatus() == ExerciceStatus.CLOSED) {
+            throw new BadRequestException("This invoice belongs to a closed fiscal year (exercice) and cannot be modified.");
+        }
 
         InvoiceStatus oldStatus = invoice.getStatus();
         InvoiceStatus targetStatus = request.status();
@@ -397,7 +453,9 @@ public class InvoiceService {
                 lineItems,
                 payments,
                 invoice.getTenantId(),
-                invoice.getCreatedAt()
+                invoice.getCreatedAt(),
+                invoice.getExercice() != null ? invoice.getExercice().getId() : null,
+                invoice.getExercice() != null ? invoice.getExercice().getName() : null
         );
     }
 
@@ -406,7 +464,8 @@ public class InvoiceService {
             InvoiceStatus status,
             LocalDate fromDate,
             LocalDate toDate,
-            Long customerId
+            Long customerId,
+            Long exerciceId
     ) {
         Specification<Invoice> spec = (root, query, cb) -> cb.equal(root.get("tenantId"), tenantId);
 
@@ -421,6 +480,9 @@ public class InvoiceService {
         }
         if (customerId != null) {
             spec = spec.and((root, query, cb) -> cb.equal(root.get("customer").get("id"), customerId));
+        }
+        if (exerciceId != null) {
+            spec = spec.and((root, query, cb) -> cb.equal(root.get("exercice").get("id"), exerciceId));
         }
 
         return spec;
