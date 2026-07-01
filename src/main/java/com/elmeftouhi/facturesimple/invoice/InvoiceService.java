@@ -2,6 +2,7 @@ package com.elmeftouhi.facturesimple.invoice;
 
 import com.elmeftouhi.facturesimple.company.Company;
 import com.elmeftouhi.facturesimple.company.CompanyRepository;
+import com.elmeftouhi.facturesimple.user.AppUserRepository;
 import com.elmeftouhi.facturesimple.customer.Customer;
 import com.elmeftouhi.facturesimple.customer.CustomerService;
 import com.elmeftouhi.facturesimple.customer.CustomerRepository;
@@ -56,6 +57,7 @@ public class InvoiceService {
     private final InvoiceStatusChangeLogRepository statusChangeLogRepository;
     private final CompanyRepository companyRepository;
     private final ExerciceRepository exerciceRepository;
+    private final AppUserRepository appUserRepository;
 
     @Transactional
     public InvoiceResponse create(InvoiceCreateRequest request) {
@@ -375,10 +377,34 @@ public class InvoiceService {
         return "system";
     }
 
+    private String resolvePrettyName(String createdBy) {
+        if (createdBy == null || createdBy.isBlank() || "system".equalsIgnoreCase(createdBy)) {
+            return "System";
+        }
+        return appUserRepository.findByEmail(createdBy.toLowerCase().trim())
+                .map(u -> {
+                    String first = u.getFirstName();
+                    String last = u.getLastName();
+                    if (first != null && !first.isBlank() && last != null && !last.isBlank()) {
+                        String initial = last.substring(0, 1).toUpperCase();
+                        String formattedFirst = first.substring(0, 1).toUpperCase() + (first.length() > 1 ? first.substring(1) : "");
+                        return initial + ". " + formattedFirst;
+                    }
+                    if (first != null && !first.isBlank()) {
+                        return first;
+                    }
+                    if (last != null && !last.isBlank()) {
+                        return last;
+                    }
+                    return createdBy;
+                })
+                .orElse(createdBy);
+    }
+
     private InvoiceStatusChangeLogResponse toStatusChangeLogResponse(InvoiceStatusChangeLog log) {
         return new InvoiceStatusChangeLogResponse(
                 log.getChangedAt(),
-                log.getCreatedBy(),
+                resolvePrettyName(log.getCreatedBy()),
                 log.getOldStatus(),
                 log.getNewStatus()
         );
