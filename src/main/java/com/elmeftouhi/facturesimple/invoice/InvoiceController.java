@@ -16,6 +16,8 @@ import java.util.List;
 import java.util.Locale;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -33,6 +35,7 @@ import org.springframework.web.bind.annotation.RestController;
 public class InvoiceController {
 
     private final InvoiceService invoiceService;
+    private final InvoicePdfService invoicePdfService;
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
@@ -72,6 +75,15 @@ public class InvoiceController {
     @GetMapping("/{id}")
     public InvoiceResponse findById(@PathVariable Long id) {
         return invoiceService.findById(id);
+    }
+
+    @GetMapping(value = "/{id}/pdf", produces = MediaType.APPLICATION_PDF_VALUE)
+    public ResponseEntity<byte[]> downloadPdf(@PathVariable Long id) {
+        byte[] pdf = invoicePdfService.generateInvoicePdf(id, com.elmeftouhi.facturesimple.multitenancy.TenantContext.getRequiredTenantId());
+        return ResponseEntity.ok()
+                .contentType(MediaType.APPLICATION_PDF)
+                .header("Content-Disposition", "attachment; filename=invoice-" + id + ".pdf")
+                .body(pdf);
     }
 
     @PutMapping("/{id}")

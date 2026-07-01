@@ -464,8 +464,12 @@ public class InvoiceService {
                 .map(this::toPaymentResponse)
                 .toList();
 
+        BigDecimal subTotal = invoice.getAmount();
+        BigDecimal vatAmount = subTotal.multiply(invoice.getVatRate()).divide(new BigDecimal("100.00"), 2, RoundingMode.HALF_UP);
+        BigDecimal totalAmount = subTotal.add(vatAmount).setScale(2, RoundingMode.HALF_UP);
+
         BigDecimal paidAmount = calculatePaidAmount(payments);
-        BigDecimal remainingAmount = calculateRemainingAmount(invoice.getAmount(), paidAmount);
+        BigDecimal remainingAmount = calculateRemainingAmount(totalAmount, paidAmount);
 
         // Fetch company information for the current tenant
         InvoiceCompanyResponse companyResponse = companyRepository.findByTenantId(invoice.getTenantId())
@@ -485,7 +489,7 @@ public class InvoiceService {
                 invoice.getVatRate(),
                 paidAmount,
                 remainingAmount,
-                resolvePaymentStatus(invoice.getAmount(), remainingAmount),
+                resolvePaymentStatus(totalAmount, remainingAmount),
                 invoice.getStatus(),
                 lineItems,
                 payments,
