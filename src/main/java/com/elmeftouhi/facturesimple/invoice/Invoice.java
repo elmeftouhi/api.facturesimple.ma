@@ -91,6 +91,9 @@ public class Invoice extends BaseTenantAwareEntity {
     @OneToMany(mappedBy = "invoice", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
     private List<InvoicePayment> payments = new ArrayList<>();
 
+    @OneToMany(mappedBy = "invoice", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
+    private List<InvoiceDiscount> discounts = new ArrayList<>();
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "exercice_id")
     private com.elmeftouhi.facturesimple.exercice.Exercice exercice;

@@ -19,7 +19,8 @@ public record InvoiceCreateRequest(
         @NotNull @DecimalMin(value = "0.01") BigDecimal vatRate,
         InvoiceTemplate templateChoice,
         List<InvoiceLineItemRequest> lineItems,
-        List<InvoicePaymentRequest> payments
+        List<InvoicePaymentRequest> payments,
+        List<InvoiceDiscountRequest> discounts
 ) {
 }
 

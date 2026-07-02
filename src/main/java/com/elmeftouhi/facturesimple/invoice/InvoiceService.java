@@ -10,6 +10,8 @@ import com.elmeftouhi.facturesimple.customer.dto.CustomerResponse;
 import com.elmeftouhi.facturesimple.invoice.dto.InvoiceCompanyResponse;
 import com.elmeftouhi.facturesimple.invoice.dto.InvoiceCreateRequest;
 import com.elmeftouhi.facturesimple.invoice.dto.InvoiceCustomerResponse;
+import com.elmeftouhi.facturesimple.invoice.dto.InvoiceDiscountRequest;
+import com.elmeftouhi.facturesimple.invoice.dto.InvoiceDiscountResponse;
 import com.elmeftouhi.facturesimple.invoice.dto.InvoiceLineItemRequest;
 import com.elmeftouhi.facturesimple.invoice.dto.InvoiceLineItemResponse;
 import com.elmeftouhi.facturesimple.invoice.dto.InvoicePageResponse;
@@ -57,6 +59,7 @@ public class InvoiceService {
     private final CompanyRepository companyRepository;
     private final ExerciceRepository exerciceRepository;
     private final AppUserRepository appUserRepository;
+    private final InvoiceDiscountRepository invoiceDiscountRepository;
 
     @Transactional
     public InvoiceResponse create(InvoiceCreateRequest request) {
@@ -118,6 +121,18 @@ public class InvoiceService {
                 payment.setPaymentDate(paymentReq.paymentDate());
                 payment.setPaidAmount(paymentReq.paidAmount());
                 paymentRepository.save(payment);
+            }
+        }
+
+        // Add discounts if provided
+        if (request.discounts() != null && !request.discounts().isEmpty()) {
+            for (InvoiceDiscountRequest discountReq : request.discounts()) {
+                InvoiceDiscount discount = new InvoiceDiscount();
+                discount.setInvoice(saved);
+                discount.setName(discountReq.name());
+                discount.setDiscountType(discountReq.discountType());
+                discount.setDiscountValue(discountReq.discountValue());
+                invoiceDiscountRepository.save(discount);
             }
         }
 
@@ -501,9 +516,31 @@ public class InvoiceService {
                 .map(this::toPaymentResponse)
                 .toList();
 
-        BigDecimal subTotal = invoice.getAmount();
-        BigDecimal vatAmount = subTotal.multiply(invoice.getVatRate()).divide(new BigDecimal("100.00"), 2, RoundingMode.HALF_UP);
-        BigDecimal totalAmount = subTotal.add(vatAmount).setScale(2, RoundingMode.HALF_UP);
+        List<InvoiceDiscountResponse> discounts = invoiceDiscountRepository.findByInvoiceIdOrderByIdAsc(invoice.getId())
+                .stream()
+                .map(d -> new InvoiceDiscountResponse(
+                        d.getId(),
+                        d.getName(),
+                        d.getDiscountType(),
+                        d.getDiscountValue()
+                ))
+                .toList();
+
+        BigDecimal totalGrossAmount = invoice.getAmount();
+        BigDecimal totalDiscountAmount = BigDecimal.ZERO;
+        for (InvoiceDiscountResponse d : discounts) {
+            if (d.discountType() == DiscountType.PERCENTAGE) {
+                BigDecimal pctAmt = totalGrossAmount.multiply(d.discountValue()).divide(new BigDecimal("100.00"), 2, RoundingMode.HALF_UP);
+                totalDiscountAmount = totalDiscountAmount.add(pctAmt);
+            } else {
+                totalDiscountAmount = totalDiscountAmount.add(d.discountValue());
+            }
+        }
+        totalDiscountAmount = totalDiscountAmount.setScale(2, RoundingMode.HALF_UP);
+        BigDecimal totalNetAmount = totalGrossAmount.subtract(totalDiscountAmount).max(BigDecimal.ZERO).setScale(2, RoundingMode.HALF_UP);
+
+        BigDecimal vatAmount = totalNetAmount.multiply(invoice.getVatRate()).divide(new BigDecimal("100.00"), 2, RoundingMode.HALF_UP);
+        BigDecimal totalAmount = totalNetAmount.add(vatAmount).setScale(2, RoundingMode.HALF_UP);
 
         BigDecimal paidAmount = calculatePaidAmount(payments);
         BigDecimal remainingAmount = calculateRemainingAmount(totalAmount, paidAmount);
@@ -530,6 +567,10 @@ public class InvoiceService {
                 invoice.getStatus(),
                 lineItems,
                 payments,
+                discounts,
+                totalGrossAmount,
+                totalDiscountAmount,
+                totalNetAmount,
                 invoice.getTenantId(),
                 invoice.getCreatedAt(),
                 invoice.getExercice() != null ? invoice.getExercice().getId() : null,

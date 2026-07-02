@@ -35,6 +35,7 @@ public class InvoicePdfService {
     private final InvoiceLineItemRepository lineItemRepository;
     private final InvoicePaymentRepository paymentRepository;
     private final CompanyRepository companyRepository;
+    private final InvoiceDiscountRepository invoiceDiscountRepository;
 
     @Transactional(readOnly = true)
     public byte[] generateInvoicePdf(Long invoiceId, Long tenantId) {
@@ -65,6 +66,8 @@ public class InvoicePdfService {
                 ))
                 .toList();
 
+        List<InvoiceDiscount> discounts = invoiceDiscountRepository.findByInvoiceIdOrderByIdAsc(invoice.getId());
+
         Company company = companyRepository.findByTenantId(tenantId).orElse(null);
 
         try (PDDocument document = new PDDocument(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
@@ -72,7 +75,7 @@ public class InvoicePdfService {
             document.addPage(page);
 
             try (PDPageContentStream content = new PDPageContentStream(document, page, AppendMode.OVERWRITE, true, true)) {
-                renderDocument(content, invoice, lineItems, payments, company);
+                renderDocument(content, invoice, lineItems, payments, discounts, company);
             }
 
             document.save(out);
@@ -82,7 +85,7 @@ public class InvoicePdfService {
         }
     }
 
-    private void renderDocument(PDPageContentStream content, Invoice invoice, List<InvoiceLineItemResponse> lineItems, List<InvoicePaymentResponse> payments, Company company) throws IOException {
+    private void renderDocument(PDPageContentStream content, Invoice invoice, List<InvoiceLineItemResponse> lineItems, List<InvoicePaymentResponse> payments, List<InvoiceDiscount> discounts, Company company) throws IOException {
         content.setNonStrokingColor(Color.WHITE);
         content.addRect(0, 0, 595, 842);
         content.fill();
@@ -174,23 +177,45 @@ public class InvoicePdfService {
         }
 
         y -= 12f;
-        BigDecimal subTotal = invoice.getAmount();
-        BigDecimal vatAmount = subTotal.multiply(invoice.getVatRate()).divide(new BigDecimal("100.00"), 2, java.math.RoundingMode.HALF_UP);
-        BigDecimal totalAmount = subTotal.add(vatAmount).setScale(2, java.math.RoundingMode.HALF_UP);
+        BigDecimal totalGrossAmount = invoice.getAmount();
+        BigDecimal totalDiscountAmount = BigDecimal.ZERO;
+        List<String> discountLines = new java.util.ArrayList<>();
+        for (InvoiceDiscount d : discounts) {
+            BigDecimal dVal = BigDecimal.ZERO;
+            if (d.getDiscountType() == DiscountType.PERCENTAGE) {
+                dVal = totalGrossAmount.multiply(d.getDiscountValue()).divide(new BigDecimal("100.00"), 2, java.math.RoundingMode.HALF_UP);
+                discountLines.add("  " + d.getName() + " (" + formatMoney(d.getDiscountValue()) + "%): -" + formatMoney(dVal));
+            } else {
+                dVal = d.getDiscountValue();
+                discountLines.add("  " + d.getName() + ": -" + formatMoney(dVal));
+            }
+            totalDiscountAmount = totalDiscountAmount.add(dVal);
+        }
+        totalDiscountAmount = totalDiscountAmount.setScale(2, java.math.RoundingMode.HALF_UP);
+        BigDecimal totalNetAmount = totalGrossAmount.subtract(totalDiscountAmount).max(BigDecimal.ZERO).setScale(2, java.math.RoundingMode.HALF_UP);
+
+        BigDecimal vatAmount = totalNetAmount.multiply(invoice.getVatRate()).divide(new BigDecimal("100.00"), 2, java.math.RoundingMode.HALF_UP);
+        BigDecimal totalAmount = totalNetAmount.add(vatAmount).setScale(2, java.math.RoundingMode.HALF_UP);
         BigDecimal paidAmount = payments.stream().map(InvoicePaymentResponse::paidAmount).reduce(BigDecimal.ZERO, BigDecimal::add).setScale(2, java.math.RoundingMode.HALF_UP);
         BigDecimal remainingAmount = totalAmount.subtract(paidAmount).max(BigDecimal.ZERO).setScale(2, java.math.RoundingMode.HALF_UP);
 
         float summaryWidth = 220f;
         float summaryX = margin + contentWidth - summaryWidth;
 
-        List<String> summary = List.of(
-                "Subtotal: " + formatMoney(subTotal),
-                "VAT (" + formatMoney(invoice.getVatRate()) + "%): " + formatMoney(vatAmount),
-                "Total: " + formatMoney(totalAmount),
-                "Paid: " + formatMoney(paidAmount),
-                "Remaining: " + formatMoney(remainingAmount),
-                "Status: " + resolvePaymentStatus(totalAmount, remainingAmount)
-        );
+        List<String> summaryParts = new ArrayList<>();
+        summaryParts.add("Total Gross HT: " + formatMoney(totalGrossAmount));
+        if (!discountLines.isEmpty()) {
+            summaryParts.addAll(discountLines);
+            summaryParts.add("Total Discounts: -" + formatMoney(totalDiscountAmount));
+            summaryParts.add("Net Commercial HT: " + formatMoney(totalNetAmount));
+        }
+        summaryParts.add("VAT (" + formatMoney(invoice.getVatRate()) + "%): " + formatMoney(vatAmount));
+        summaryParts.add("Total TTC: " + formatMoney(totalAmount));
+        summaryParts.add("Paid: " + formatMoney(paidAmount));
+        summaryParts.add("Remaining: " + formatMoney(remainingAmount));
+        summaryParts.add("Status: " + resolvePaymentStatus(totalAmount, remainingAmount));
+
+        List<String> summary = summaryParts;
         float summaryHeight = computeBoxHeight(summary, summaryWidth - 14f);
         ensureSpace(y, summaryHeight + 14f);
         float summaryEndY = drawInfoBox(content, summaryX, y, summaryWidth, summaryHeight, "Summary", summary);
