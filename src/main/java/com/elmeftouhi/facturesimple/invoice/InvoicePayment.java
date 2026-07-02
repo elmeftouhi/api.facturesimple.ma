@@ -52,5 +52,8 @@ public class InvoicePayment extends BaseTenantAwareEntity {
 
     @Column(name = "paid_amount", nullable = false, precision = 15, scale = 2)
     private BigDecimal paidAmount;
+
+    @Column(name = "bank_name", length = 120)
+    private String bankName;
 }
 

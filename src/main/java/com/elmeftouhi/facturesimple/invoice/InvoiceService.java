@@ -468,6 +468,7 @@ public class InvoiceService {
         payment.setPaymentReference(normalizeNullable(request.paymentReference()));
         payment.setPaymentDate(request.paymentDate());
         payment.setPaidAmount(request.paidAmount());
+        payment.setBankName(normalizeNullable(request.bankName()));
 
         InvoicePayment saved = paymentRepository.save(payment);
         return toPaymentResponse(saved);
@@ -641,7 +642,8 @@ public class InvoiceService {
                 payment.getPaymentMethod(),
                 payment.getPaymentReference(),
                 payment.getPaymentDate(),
-                payment.getPaidAmount()
+                payment.getPaidAmount(),
+                payment.getBankName()
         );
     }
 
@@ -668,7 +670,8 @@ public class InvoiceService {
                 payment.getPaidAmount(),
                 invoiceId,
                 invoiceNum,
-                customerName
+                customerName,
+                payment.getBankName()
         );
     }
 

@@ -12,6 +12,7 @@ public record TenantPaymentResponse(
         BigDecimal paidAmount,
         Long invoiceId,
         String invoiceNumber,
-        String customerName
+        String customerName,
+        String bankName
 ) {
 }

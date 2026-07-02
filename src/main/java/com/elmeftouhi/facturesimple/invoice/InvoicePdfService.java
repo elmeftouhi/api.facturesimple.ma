@@ -60,7 +60,8 @@ public class InvoicePdfService {
                         payment.getPaymentMethod(),
                         payment.getPaymentReference(),
                         payment.getPaymentDate(),
-                        payment.getPaidAmount()
+                        payment.getPaidAmount(),
+                        payment.getBankName()
                 ))
                 .toList();
 

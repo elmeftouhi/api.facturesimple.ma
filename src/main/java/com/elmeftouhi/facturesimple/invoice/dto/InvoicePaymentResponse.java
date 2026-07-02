@@ -9,7 +9,8 @@ public record InvoicePaymentResponse(
         PaymentMethod paymentMethod,
         String paymentReference,
         LocalDate paymentDate,
-        BigDecimal paidAmount
+        BigDecimal paidAmount,
+        String bankName
 ) {
 }
 

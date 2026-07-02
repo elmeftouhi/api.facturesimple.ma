@@ -11,7 +11,8 @@ public record InvoicePaymentRequest(
         @NotNull PaymentMethod paymentMethod,
         @Size(max = 120) String paymentReference,
         @NotNull LocalDate paymentDate,
-        @NotNull @DecimalMin(value = "0.01") BigDecimal paidAmount
+        @NotNull @DecimalMin(value = "0.01") BigDecimal paidAmount,
+        @Size(max = 120) String bankName
 ) {
 }
 
