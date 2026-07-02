@@ -22,6 +22,7 @@ import com.elmeftouhi.facturesimple.multitenancy.TenantContext;
 import com.elmeftouhi.facturesimple.security.JwtPrincipal;
 import com.elmeftouhi.facturesimple.shared.exception.BadRequestException;
 import com.elmeftouhi.facturesimple.shared.exception.ConflictException;
+import com.elmeftouhi.facturesimple.shared.exception.ResourceNotFoundException;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
@@ -116,7 +117,7 @@ class InvoiceServiceInlineCustomerIT {
         assertThat(response.customer().id()).isNotNull();
         assertThat(response.templateUsed()).isEqualTo(InvoiceTemplate.MODERN);
         assertThat(customerRepository.findByIdAndTenantId(response.customer().id(), TENANT_ID)).isPresent();
-        assertThat(invoiceRepository.findByIdAndTenantId(response.id(), TENANT_ID)).isPresent();
+        assertThat(invoiceRepository.findByIdAndTenantIdAndDeletedAtIsNull(response.id(), TENANT_ID)).isPresent();
     }
 
     @Test
@@ -148,7 +149,7 @@ class InvoiceServiceInlineCustomerIT {
     void createRollsBackInlineCustomerWhenInvoiceSaveFails() {
         CustomerCategory category = createCategory();
         int customersBefore = customerRepository.findAllByTenantIdOrderByIdDesc(TENANT_ID).size();
-        int invoicesBefore = invoiceRepository.findAllByTenantIdOrderByInvoiceDateDescIdDesc(TENANT_ID).size();
+        int invoicesBefore = invoiceRepository.findAllByTenantIdAndDeletedAtIsNullOrderByInvoiceDateDescIdDesc(TENANT_ID).size();
 
         InvoiceCreateRequest request = new InvoiceCreateRequest(
                 null,
@@ -165,7 +166,7 @@ class InvoiceServiceInlineCustomerIT {
         assertThatThrownBy(() -> invoiceService.create(request)).isInstanceOf(RuntimeException.class);
 
         assertThat(customerRepository.findAllByTenantIdOrderByIdDesc(TENANT_ID)).hasSize(customersBefore);
-        assertThat(invoiceRepository.findAllByTenantIdOrderByInvoiceDateDescIdDesc(TENANT_ID)).hasSize(invoicesBefore);
+        assertThat(invoiceRepository.findAllByTenantIdAndDeletedAtIsNullOrderByInvoiceDateDescIdDesc(TENANT_ID)).hasSize(invoicesBefore);
     }
 
     @Test
@@ -205,6 +206,50 @@ class InvoiceServiceInlineCustomerIT {
         InvoiceResponse draft3 = createDraftInvoice();
         InvoiceResponse printed3 = invoiceService.changeStatus(draft3.id(), new InvoiceStatusUpdateRequest(InvoiceStatus.PRINTED));
         assertThat(printed3.invoiceNumber()).isEqualTo(firstOfficialNumber + 1);
+    }
+
+    @Test
+    void deletingLastOfficialInvoiceReusesItsNumberInSameExercice() {
+        InvoiceResponse draft1 = createDraftInvoice();
+        InvoiceResponse printed1 = invoiceService.changeStatus(draft1.id(), new InvoiceStatusUpdateRequest(InvoiceStatus.PRINTED));
+
+        InvoiceResponse draft2 = createDraftInvoice();
+        InvoiceResponse printed2 = invoiceService.changeStatus(draft2.id(), new InvoiceStatusUpdateRequest(InvoiceStatus.PRINTED));
+
+        invoiceService.changeStatus(printed2.id(), new InvoiceStatusUpdateRequest(InvoiceStatus.CANCELLED));
+        invoiceService.delete(printed2.id());
+
+        assertThatThrownBy(() -> invoiceService.findById(printed2.id()))
+                .isInstanceOf(ResourceNotFoundException.class)
+                .hasMessageContaining("Invoice not found");
+
+        InvoiceResponse draft3 = createDraftInvoice();
+        InvoiceResponse printed3 = invoiceService.changeStatus(draft3.id(), new InvoiceStatusUpdateRequest(InvoiceStatus.PRINTED));
+
+        assertThat(printed3.invoiceNumber()).isEqualTo(printed2.invoiceNumber());
+        assertThat(printed3.invoiceNumber()).isGreaterThan(printed1.invoiceNumber());
+    }
+
+    @Test
+    void deletingNonLastOfficialInvoiceDoesNotReuseItsNumber() {
+        InvoiceResponse draft1 = createDraftInvoice();
+        InvoiceResponse printed1 = invoiceService.changeStatus(draft1.id(), new InvoiceStatusUpdateRequest(InvoiceStatus.PRINTED));
+
+        InvoiceResponse draft2 = createDraftInvoice();
+        InvoiceResponse printed2 = invoiceService.changeStatus(draft2.id(), new InvoiceStatusUpdateRequest(InvoiceStatus.PRINTED));
+
+        InvoiceResponse draft3 = createDraftInvoice();
+        InvoiceResponse printed3 = invoiceService.changeStatus(draft3.id(), new InvoiceStatusUpdateRequest(InvoiceStatus.PRINTED));
+
+        invoiceService.changeStatus(printed2.id(), new InvoiceStatusUpdateRequest(InvoiceStatus.CANCELLED));
+        invoiceService.delete(printed2.id());
+
+        InvoiceResponse draft4 = createDraftInvoice();
+        InvoiceResponse printed4 = invoiceService.changeStatus(draft4.id(), new InvoiceStatusUpdateRequest(InvoiceStatus.PRINTED));
+
+        assertThat(printed4.invoiceNumber()).isEqualTo(printed3.invoiceNumber() + 1);
+        assertThat(printed4.invoiceNumber()).isNotEqualTo(printed2.invoiceNumber());
+        assertThat(printed4.invoiceNumber()).isGreaterThan(printed1.invoiceNumber());
     }
 
     @Test

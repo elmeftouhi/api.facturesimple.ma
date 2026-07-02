@@ -39,7 +39,7 @@ public class InvoicePdfService {
 
     @Transactional(readOnly = true)
     public byte[] generateInvoicePdf(Long invoiceId, Long tenantId) {
-        Invoice invoice = invoiceRepository.findByIdAndTenantId(invoiceId, tenantId)
+        Invoice invoice = invoiceRepository.findByIdAndTenantIdAndDeletedAtIsNull(invoiceId, tenantId)
                 .orElseThrow(() -> new ResourceNotFoundException("Invoice not found"));
 
         List<InvoiceLineItemResponse> lineItems = lineItemRepository.findByInvoiceIdOrderByIdAsc(invoice.getId())

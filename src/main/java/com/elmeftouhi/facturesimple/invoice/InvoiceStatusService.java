@@ -109,7 +109,7 @@ public class InvoiceStatusService {
             throw new BadRequestException("Cannot delete system status " + status.getName());
         }
 
-        boolean inUse = invoiceRepository.existsByStatusAndTenantId(status.getName(), tenantId);
+        boolean inUse = invoiceRepository.existsByStatusAndTenantIdAndDeletedAtIsNull(status.getName(), tenantId);
         if (inUse) {
             throw new ConflictException("Cannot delete status because it is currently in use by one or more invoices. You can deactivate it instead.");
         }

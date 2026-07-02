@@ -29,6 +29,7 @@ import com.elmeftouhi.facturesimple.shared.exception.ConflictException;
 import com.elmeftouhi.facturesimple.shared.exception.ResourceNotFoundException;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
@@ -173,7 +174,7 @@ public class InvoiceService {
     @Transactional(readOnly = true)
     public List<InvoiceResponse> findAll() {
         Long tenantId = TenantContext.getRequiredTenantId();
-        return invoiceRepository.findAllByTenantIdOrderByInvoiceDateDescIdDesc(tenantId)
+        return invoiceRepository.findAllByTenantIdAndDeletedAtIsNullOrderByInvoiceDateDescIdDesc(tenantId)
                 .stream()
                 .map(this::toResponse)
                 .toList();
@@ -251,7 +252,7 @@ public class InvoiceService {
     @Transactional(readOnly = true)
     public InvoiceResponse findById(Long id) {
         Long tenantId = TenantContext.getRequiredTenantId();
-        Invoice invoice = invoiceRepository.findByIdAndTenantId(id, tenantId)
+        Invoice invoice = invoiceRepository.findByIdAndTenantIdAndDeletedAtIsNull(id, tenantId)
                 .orElseThrow(() -> new ResourceNotFoundException("Invoice not found"));
         return toResponse(invoice);
     }
@@ -266,13 +267,13 @@ public class InvoiceService {
         String trimmed = number.trim();
 
         // 1. Try search by formatted number
-        Optional<Invoice> invoiceOpt = invoiceRepository.findByFormattedNumberAndTenantId(trimmed, tenantId);
+        Optional<Invoice> invoiceOpt = invoiceRepository.findByFormattedNumberAndTenantIdAndDeletedAtIsNull(trimmed, tenantId);
 
         // 2. If not found, try parsing as Long and search by raw invoiceNumber
         if (invoiceOpt.isEmpty()) {
             try {
                 Long rawNum = Long.parseLong(trimmed);
-                invoiceOpt = invoiceRepository.findByInvoiceNumberAndTenantId(rawNum, tenantId);
+                invoiceOpt = invoiceRepository.findByInvoiceNumberAndTenantIdAndDeletedAtIsNull(rawNum, tenantId);
             } catch (NumberFormatException e) {
                 // Ignore
             }
@@ -282,7 +283,7 @@ public class InvoiceService {
         if (invoiceOpt.isEmpty() && trimmed.startsWith("#")) {
             try {
                 Long rawNum = Long.parseLong(trimmed.substring(1));
-                invoiceOpt = invoiceRepository.findByInvoiceNumberAndTenantId(rawNum, tenantId);
+                invoiceOpt = invoiceRepository.findByInvoiceNumberAndTenantIdAndDeletedAtIsNull(rawNum, tenantId);
             } catch (NumberFormatException e) {
                 // Ignore
             }
@@ -295,7 +296,7 @@ public class InvoiceService {
     @Transactional
     public InvoiceResponse update(Long id, InvoiceUpdateRequest request) {
         Long tenantId = TenantContext.getRequiredTenantId();
-        Invoice invoice = invoiceRepository.findByIdAndTenantId(id, tenantId)
+        Invoice invoice = invoiceRepository.findByIdAndTenantIdAndDeletedAtIsNull(id, tenantId)
                 .orElseThrow(() -> new ResourceNotFoundException("Invoice not found"));
 
         if (invoice.isLocked()) {
@@ -331,7 +332,7 @@ public class InvoiceService {
     @Transactional
     public void delete(Long id) {
         Long tenantId = TenantContext.getRequiredTenantId();
-        Invoice invoice = invoiceRepository.findByIdAndTenantId(id, tenantId)
+        Invoice invoice = invoiceRepository.findByIdAndTenantIdAndDeletedAtIsNull(id, tenantId)
                 .orElseThrow(() -> new ResourceNotFoundException("Invoice not found"));
 
         if (invoice.isLocked()) {
@@ -345,13 +346,22 @@ public class InvoiceService {
         if (!"DRAFT".equals(invoice.getStatus()) && !"CANCELLED".equals(invoice.getStatus())) {
             throw new ConflictException("Only draft or cancelled invoices can be deleted");
         }
-        invoiceRepository.delete(invoice);
+
+        Long officialNumber = invoice.getInvoiceNumber();
+        invoice.setDeletedInvoiceNumber(officialNumber != null && officialNumber > 0 ? officialNumber : null);
+        invoice.setInvoiceNumber(generateNextDeletedInvoiceNumber(tenantId));
+
+        // Replace visible identifiers so unique constraints do not block future reuse.
+        String deletedMarker = "DELETED-" + UUID.randomUUID();
+        invoice.setFormattedNumber(deletedMarker);
+        invoice.setReference(deletedMarker);
+        invoice.setDeletedAt(Instant.now());
     }
 
     @Transactional
     public InvoiceResponse changeStatus(Long id, InvoiceStatusUpdateRequest request) {
         Long tenantId = TenantContext.getRequiredTenantId();
-        Invoice invoice = invoiceRepository.findByIdAndTenantId(id, tenantId)
+        Invoice invoice = invoiceRepository.findByIdAndTenantIdAndDeletedAtIsNull(id, tenantId)
                 .orElseThrow(() -> new ResourceNotFoundException("Invoice not found"));
 
         if (invoice.isLocked()) {
@@ -382,7 +392,8 @@ public class InvoiceService {
         // When leaving DRAFT: validate date ordering and assign the official invoice number.
         if (oldStatusMeta.getCategory() == InvoiceStatusCategory.DRAFT && targetStatusMeta.getCategory() != InvoiceStatusCategory.DRAFT) {
             if (invoice.getInvoiceNumber() == null || invoice.getInvoiceNumber() < 0) {
-                validateInvoiceDateOrdering(invoice.getInvoiceDate(), tenantId);
+                Long exerciceId = requireExerciceId(invoice);
+                validateInvoiceDateOrdering(invoice.getInvoiceDate(), tenantId, exerciceId);
                 assignOfficialNumber(invoice, tenantId);
             }
         }
@@ -396,7 +407,7 @@ public class InvoiceService {
     @Transactional(readOnly = true)
     public List<InvoiceStatusChangeLogResponse> findStatusHistory(Long invoiceId) {
         Long tenantId = TenantContext.getRequiredTenantId();
-        invoiceRepository.findByIdAndTenantId(invoiceId, tenantId)
+        invoiceRepository.findByIdAndTenantIdAndDeletedAtIsNull(invoiceId, tenantId)
                 .orElseThrow(() -> new ResourceNotFoundException("Invoice not found"));
 
         return statusChangeLogRepository.findByInvoice_IdAndTenantIdOrderByChangedAtDesc(invoiceId, tenantId)
@@ -405,8 +416,8 @@ public class InvoiceService {
                 .toList();
     }
 
-    private void validateInvoiceDateOrdering(LocalDate invoiceDate, Long tenantId) {
-        invoiceRepository.findMaxOfficialInvoiceDateByTenantId(tenantId).ifPresent(maxDate -> {
+    private void validateInvoiceDateOrdering(LocalDate invoiceDate, Long tenantId, Long exerciceId) {
+        invoiceRepository.findMaxOfficialInvoiceDateByTenantIdAndExerciceId(tenantId, exerciceId).ifPresent(maxDate -> {
             if (invoiceDate.isBefore(maxDate)) {
                 throw new ConflictException(
                     "Invoice date " + invoiceDate + " is before the most recent official invoice date " + maxDate +
@@ -417,15 +428,42 @@ public class InvoiceService {
     }
 
     private void assignOfficialNumber(Invoice invoice, Long tenantId) {
-        Long nextNumber = invoiceRepository.getMaxInvoiceNumberForTenant(tenantId) + 1;
+        Long exerciceId = requireExerciceId(invoice);
+        Long maxOfficialNumber = invoiceRepository.getMaxOfficialInvoiceNumberForExercice(tenantId, exerciceId);
+        Long nextNumber = maxOfficialNumber + 1;
+
+        Optional<Invoice> latestDeletedOfficialInvoice =
+                invoiceRepository.findTopByTenantIdAndExercice_IdAndDeletedAtIsNotNullAndDeletedInvoiceNumberIsNotNullOrderByDeletedAtDesc(
+                        tenantId,
+                        exerciceId
+                );
+        if (latestDeletedOfficialInvoice.isPresent()) {
+            Long deletedNumber = latestDeletedOfficialInvoice.get().getDeletedInvoiceNumber();
+            if (deletedNumber != null && deletedNumber > maxOfficialNumber) {
+                nextNumber = deletedNumber;
+            }
+        }
+
         String formatted = generateFormattedNumber(nextNumber, invoice.getInvoiceDate().getYear());
         invoice.setInvoiceNumber(nextNumber);
         invoice.setFormattedNumber(formatted);
         invoice.setReference(formatted);
     }
 
+    private Long requireExerciceId(Invoice invoice) {
+        if (invoice.getExercice() == null || invoice.getExercice().getId() == null) {
+            throw new BadRequestException("Invoice must belong to an exercice");
+        }
+        return invoice.getExercice().getId();
+    }
+
     private Long generateNextDraftNumber(Long tenantId) {
         Long minNumber = invoiceRepository.getMinInvoiceNumberForTenant(tenantId);
+        return minNumber > 0 ? -1L : minNumber - 1L;
+    }
+
+    private Long generateNextDeletedInvoiceNumber(Long tenantId) {
+        Long minNumber = invoiceRepository.getMinInvoiceNumberForTenantIncludingDeleted(tenantId);
         return minNumber > 0 ? -1L : minNumber - 1L;
     }
 
@@ -500,7 +538,7 @@ public class InvoiceService {
     @Transactional
     public InvoicePaymentResponse addPayment(Long invoiceId, InvoicePaymentRequest request) {
         Long tenantId = TenantContext.getRequiredTenantId();
-        Invoice invoice = invoiceRepository.findByIdAndTenantId(invoiceId, tenantId)
+        Invoice invoice = invoiceRepository.findByIdAndTenantIdAndDeletedAtIsNull(invoiceId, tenantId)
                 .orElseThrow(() -> new ResourceNotFoundException("Invoice not found"));
 
         BigDecimal totalAmount = calculateTotalAmount(invoice);
@@ -527,7 +565,7 @@ public class InvoiceService {
     @Transactional
     public void removePayment(Long invoiceId, Long paymentId) {
         Long tenantId = TenantContext.getRequiredTenantId();
-        Invoice invoice = invoiceRepository.findByIdAndTenantId(invoiceId, tenantId)
+        Invoice invoice = invoiceRepository.findByIdAndTenantIdAndDeletedAtIsNull(invoiceId, tenantId)
                 .orElseThrow(() -> new ResourceNotFoundException("Invoice not found"));
 
         if (invoice.isLocked()) {
@@ -636,6 +674,7 @@ public class InvoiceService {
             Long exerciceId
     ) {
         Specification<Invoice> spec = (root, query, cb) -> cb.equal(root.get("tenantId"), tenantId);
+        spec = spec.and((root, query, cb) -> cb.isNull(root.get("deletedAt")));
 
         if (status != null && !status.isBlank()) {
             spec = spec.and((root, query, cb) -> cb.equal(root.get("status"), status.trim().toUpperCase()));
@@ -775,7 +814,7 @@ public class InvoiceService {
     @Transactional
     public InvoiceResponse toggleLock(Long id, boolean locked) {
         Long tenantId = TenantContext.getRequiredTenantId();
-        Invoice invoice = invoiceRepository.findByIdAndTenantId(id, tenantId)
+        Invoice invoice = invoiceRepository.findByIdAndTenantIdAndDeletedAtIsNull(id, tenantId)
                 .orElseThrow(() -> new ResourceNotFoundException("Invoice not found"));
 
         invoice.setLocked(locked);

@@ -100,6 +100,12 @@ public class Invoice extends BaseTenantAwareEntity {
     @JoinColumn(name = "exercice_id")
     private com.elmeftouhi.facturesimple.exercice.Exercice exercice;
 
+    @Column(name = "deleted_at")
+    private Instant deletedAt;
+
+    @Column(name = "deleted_invoice_number")
+    private Long deletedInvoiceNumber;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt = Instant.now();
 }
