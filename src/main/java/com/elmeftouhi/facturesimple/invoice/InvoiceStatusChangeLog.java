@@ -40,13 +40,11 @@ public class InvoiceStatusChangeLog extends BaseTenantAwareEntity {
     @JoinColumn(name = "invoice_id", nullable = false)
     private Invoice invoice;
 
-    @Enumerated(EnumType.STRING)
-    @Column(name = "old_status", nullable = false, length = 20)
-    private InvoiceStatus oldStatus;
+    @Column(name = "old_status", nullable = false, length = 80)
+    private String oldStatus;
 
-    @Enumerated(EnumType.STRING)
-    @Column(name = "new_status", nullable = false, length = 20)
-    private InvoiceStatus newStatus;
+    @Column(name = "new_status", nullable = false, length = 80)
+    private String newStatus;
 
     @Column(name = "created_by", nullable = false, length = 120)
     private String createdBy;

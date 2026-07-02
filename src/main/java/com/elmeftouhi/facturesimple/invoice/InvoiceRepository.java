@@ -20,12 +20,14 @@ public interface InvoiceRepository extends JpaRepository<Invoice, Long>, JpaSpec
 
     boolean existsByInvoiceNumberAndTenantId(Long invoiceNumber, Long tenantId);
 
+    boolean existsByStatusAndTenantId(String status, Long tenantId);
+
     // Only counts official (non-DRAFT) invoices to avoid gaps when drafts are deleted.
-    @Query("SELECT COALESCE(MAX(i.invoiceNumber), 0) FROM Invoice i WHERE i.tenantId = :tenantId AND i.status != com.elmeftouhi.facturesimple.invoice.InvoiceStatus.DRAFT")
+    @Query("SELECT COALESCE(MAX(i.invoiceNumber), 0) FROM Invoice i WHERE i.tenantId = :tenantId AND i.status != 'DRAFT'")
     Long getMaxInvoiceNumberForTenant(@Param("tenantId") Long tenantId);
 
     // Latest invoice date among official (non-DRAFT) invoices for date-ordering validation.
-    @Query("SELECT MAX(i.invoiceDate) FROM Invoice i WHERE i.tenantId = :tenantId AND i.status != com.elmeftouhi.facturesimple.invoice.InvoiceStatus.DRAFT")
+    @Query("SELECT MAX(i.invoiceDate) FROM Invoice i WHERE i.tenantId = :tenantId AND i.status != 'DRAFT'")
     Optional<LocalDate> findMaxOfficialInvoiceDateByTenantId(@Param("tenantId") Long tenantId);
 
     @Query("SELECT COALESCE(MIN(i.invoiceNumber), 0) FROM Invoice i WHERE i.tenantId = :tenantId")

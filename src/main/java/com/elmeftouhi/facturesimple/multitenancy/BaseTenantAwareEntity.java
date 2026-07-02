@@ -13,7 +13,7 @@ public abstract class BaseTenantAwareEntity {
     @Column(name = "tenant_id", nullable = false, updatable = false)
     private Long tenantId;
 
-    void assignTenantId(Long tenantId) {
+    public void assignTenantId(Long tenantId) {
         this.tenantId = tenantId;
     }
 }

@@ -1,7 +1,6 @@
 package com.elmeftouhi.facturesimple.invoice.dto;
 
 import com.elmeftouhi.facturesimple.invoice.InvoicePaymentStatus;
-import com.elmeftouhi.facturesimple.invoice.InvoiceStatus;
 import com.elmeftouhi.facturesimple.invoice.InvoiceTemplate;
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -22,7 +21,9 @@ public record InvoiceResponse(
         BigDecimal paidAmount,
         BigDecimal remainingAmount,
         InvoicePaymentStatus paymentStatus,
-        InvoiceStatus status,
+        String status,
+        InvoiceStatusResponse statusDetails,
+        boolean locked,
         List<InvoiceLineItemResponse> lineItems,
         List<InvoicePaymentResponse> payments,
         List<InvoiceDiscountResponse> discounts,

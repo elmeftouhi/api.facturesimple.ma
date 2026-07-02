@@ -21,6 +21,7 @@ import com.elmeftouhi.facturesimple.invoice.dto.InvoiceResponse;
 import com.elmeftouhi.facturesimple.invoice.dto.InvoiceStatusChangeLogResponse;
 import com.elmeftouhi.facturesimple.invoice.dto.InvoiceStatusUpdateRequest;
 import com.elmeftouhi.facturesimple.invoice.dto.InvoiceUpdateRequest;
+import com.elmeftouhi.facturesimple.invoice.dto.InvoiceStatusResponse;
 import com.elmeftouhi.facturesimple.multitenancy.TenantContext;
 import com.elmeftouhi.facturesimple.security.JwtPrincipal;
 import com.elmeftouhi.facturesimple.shared.exception.BadRequestException;
@@ -60,6 +61,8 @@ public class InvoiceService {
     private final ExerciceRepository exerciceRepository;
     private final AppUserRepository appUserRepository;
     private final InvoiceDiscountRepository invoiceDiscountRepository;
+    private final InvoiceStatusRepository statusRepository;
+    private final InvoiceStatusService statusService;
 
     @Transactional
     public InvoiceResponse create(InvoiceCreateRequest request) {
@@ -96,7 +99,7 @@ public class InvoiceService {
         invoice.setDescription(normalizeNullable(request.description()));
         invoice.setVatRate(request.vatRate());
         invoice.setAmount(calculateAmount(request.lineItems()));
-        invoice.setStatus(InvoiceStatus.DRAFT);
+        invoice.setStatus("DRAFT");
 
         Invoice saved = invoiceRepository.save(invoice);
 
@@ -178,7 +181,7 @@ public class InvoiceService {
 
     @Transactional(readOnly = true)
     public InvoicePageResponse search(
-            InvoiceStatus status,
+            String status,
             LocalDate fromDate,
             LocalDate toDate,
             Long customerId,
@@ -224,7 +227,7 @@ public class InvoiceService {
             if (!Long.class.equals(query.getResultType())) {
                 query.orderBy(
                     cb.asc(cb.selectCase()
-                        .when(cb.equal(root.get("status"), InvoiceStatus.DRAFT), 0)
+                        .when(cb.equal(root.get("status"), "DRAFT"), 0)
                         .otherwise(1)),
                     cb.asc(root.get("invoiceNumber"))
                 );
@@ -295,6 +298,10 @@ public class InvoiceService {
         Invoice invoice = invoiceRepository.findByIdAndTenantId(id, tenantId)
                 .orElseThrow(() -> new ResourceNotFoundException("Invoice not found"));
 
+        if (invoice.isLocked()) {
+            throw new BadRequestException("This invoice is locked and cannot be modified.");
+        }
+
         if (invoice.getExercice() != null && invoice.getExercice().getStatus() == ExerciceStatus.CLOSED) {
             throw new BadRequestException("This invoice belongs to a closed fiscal year (exercice) and cannot be modified.");
         }
@@ -327,11 +334,15 @@ public class InvoiceService {
         Invoice invoice = invoiceRepository.findByIdAndTenantId(id, tenantId)
                 .orElseThrow(() -> new ResourceNotFoundException("Invoice not found"));
 
+        if (invoice.isLocked()) {
+            throw new BadRequestException("This invoice is locked and cannot be deleted.");
+        }
+
         if (invoice.getExercice() != null && invoice.getExercice().getStatus() == ExerciceStatus.CLOSED) {
             throw new BadRequestException("This invoice belongs to a closed fiscal year (exercice) and cannot be deleted.");
         }
 
-        if (invoice.getStatus() != InvoiceStatus.DRAFT && invoice.getStatus() != InvoiceStatus.CANCELLED) {
+        if (!"DRAFT".equals(invoice.getStatus()) && !"CANCELLED".equals(invoice.getStatus())) {
             throw new ConflictException("Only draft or cancelled invoices can be deleted");
         }
         invoiceRepository.delete(invoice);
@@ -343,22 +354,37 @@ public class InvoiceService {
         Invoice invoice = invoiceRepository.findByIdAndTenantId(id, tenantId)
                 .orElseThrow(() -> new ResourceNotFoundException("Invoice not found"));
 
+        if (invoice.isLocked()) {
+            throw new BadRequestException("This invoice is locked and status cannot be changed.");
+        }
+
         if (invoice.getExercice() != null && invoice.getExercice().getStatus() == ExerciceStatus.CLOSED) {
             throw new BadRequestException("This invoice belongs to a closed fiscal year (exercice) and cannot be modified.");
         }
 
-        InvoiceStatus oldStatus = invoice.getStatus();
-        InvoiceStatus targetStatus = request.status();
-        if (oldStatus == targetStatus) {
+        String oldStatus = invoice.getStatus();
+        String targetStatus = request.status().trim().toUpperCase();
+        if (oldStatus.equals(targetStatus)) {
             return toResponse(invoice);
         }
 
-        validateStatusTransition(oldStatus, targetStatus);
+        InvoiceStatus oldStatusMeta = statusRepository.findByNameAndTenantId(oldStatus, tenantId)
+                .orElseThrow(() -> new ResourceNotFoundException("Status '" + oldStatus + "' not found"));
+        InvoiceStatus targetStatusMeta = statusRepository.findByNameAndTenantId(targetStatus, tenantId)
+                .orElseThrow(() -> new ResourceNotFoundException("Status '" + targetStatus + "' not found"));
+
+        if (!targetStatusMeta.isActive()) {
+            throw new BadRequestException("The target status '" + targetStatus + "' is inactive and cannot be transitioned to.");
+        }
+
+        validateStatusTransition(oldStatusMeta.getCategory(), targetStatusMeta.getCategory());
 
         // When leaving DRAFT: validate date ordering and assign the official invoice number.
-        if (oldStatus == InvoiceStatus.DRAFT) {
-            validateInvoiceDateOrdering(invoice.getInvoiceDate(), tenantId);
-            assignOfficialNumber(invoice, tenantId);
+        if (oldStatusMeta.getCategory() == InvoiceStatusCategory.DRAFT && targetStatusMeta.getCategory() != InvoiceStatusCategory.DRAFT) {
+            if (invoice.getInvoiceNumber() == null || invoice.getInvoiceNumber() < 0) {
+                validateInvoiceDateOrdering(invoice.getInvoiceDate(), tenantId);
+                assignOfficialNumber(invoice, tenantId);
+            }
         }
 
         invoice.setStatus(targetStatus);
@@ -407,7 +433,7 @@ public class InvoiceService {
         return "DRAFT-" + UUID.randomUUID();
     }
 
-    private void saveStatusChangeLog(Invoice invoice, InvoiceStatus oldStatus, InvoiceStatus newStatus) {
+    private void saveStatusChangeLog(Invoice invoice, String oldStatus, String newStatus) {
         InvoiceStatusChangeLog log = new InvoiceStatusChangeLog();
         log.setInvoice(invoice);
         log.setOldStatus(oldStatus);
@@ -477,6 +503,15 @@ public class InvoiceService {
         Invoice invoice = invoiceRepository.findByIdAndTenantId(invoiceId, tenantId)
                 .orElseThrow(() -> new ResourceNotFoundException("Invoice not found"));
 
+        BigDecimal totalAmount = calculateTotalAmount(invoice);
+        BigDecimal paidAmount = calculatePaidAmount(paymentRepository.findByInvoiceIdOrderByPaymentDateDesc(invoice.getId())
+                .stream().map(this::toPaymentResponse).toList());
+        BigDecimal remainingAmount = calculateRemainingAmount(totalAmount, paidAmount);
+
+        if (invoice.isLocked() && remainingAmount.compareTo(BigDecimal.ZERO) <= 0) {
+            throw new BadRequestException("This invoice is locked and already fully paid. Cannot record new payments.");
+        }
+
         InvoicePayment payment = new InvoicePayment();
         payment.setInvoice(invoice);
         payment.setPaymentMethod(request.paymentMethod());
@@ -494,6 +529,10 @@ public class InvoiceService {
         Long tenantId = TenantContext.getRequiredTenantId();
         Invoice invoice = invoiceRepository.findByIdAndTenantId(invoiceId, tenantId)
                 .orElseThrow(() -> new ResourceNotFoundException("Invoice not found"));
+
+        if (invoice.isLocked()) {
+            throw new BadRequestException("This invoice is locked and payments cannot be deleted.");
+        }
 
         InvoicePayment payment = paymentRepository.findById(paymentId)
                 .orElseThrow(() -> new ResourceNotFoundException("Payment not found"));
@@ -550,6 +589,10 @@ public class InvoiceService {
                 .map(this::toCompanyResponse)
                 .orElse(null);
 
+        InvoiceStatusResponse statusDetails = statusRepository.findByNameAndTenantId(invoice.getStatus(), invoice.getTenantId())
+                .map(statusService::toResponse)
+                .orElse(null);
+
         return new InvoiceResponse(
                 invoice.getId(),
                 invoice.getInvoiceNumber(),
@@ -565,6 +608,8 @@ public class InvoiceService {
                 remainingAmount,
                 resolvePaymentStatus(totalAmount, remainingAmount),
                 invoice.getStatus(),
+                statusDetails,
+                invoice.isLocked(),
                 lineItems,
                 payments,
                 discounts,
@@ -584,7 +629,7 @@ public class InvoiceService {
 
     private Specification<Invoice> buildSearchSpecification(
             Long tenantId,
-            InvoiceStatus status,
+            String status,
             LocalDate fromDate,
             LocalDate toDate,
             Long customerId,
@@ -592,8 +637,8 @@ public class InvoiceService {
     ) {
         Specification<Invoice> spec = (root, query, cb) -> cb.equal(root.get("tenantId"), tenantId);
 
-        if (status != null) {
-            spec = spec.and((root, query, cb) -> cb.equal(root.get("status"), status));
+        if (status != null && !status.isBlank()) {
+            spec = spec.and((root, query, cb) -> cb.equal(root.get("status"), status.trim().toUpperCase()));
         }
         if (fromDate != null) {
             spec = spec.and((root, query, cb) -> cb.greaterThanOrEqualTo(root.get("invoiceDate"), fromDate));
@@ -727,18 +772,45 @@ public class InvoiceService {
                 .setScale(2, RoundingMode.HALF_UP);
     }
 
-    private void validateStatusTransition(InvoiceStatus current, InvoiceStatus target) {
+    @Transactional
+    public InvoiceResponse toggleLock(Long id, boolean locked) {
+        Long tenantId = TenantContext.getRequiredTenantId();
+        Invoice invoice = invoiceRepository.findByIdAndTenantId(id, tenantId)
+                .orElseThrow(() -> new ResourceNotFoundException("Invoice not found"));
+
+        invoice.setLocked(locked);
+        return toResponse(invoice);
+    }
+
+    private BigDecimal calculateTotalAmount(Invoice invoice) {
+        List<InvoiceDiscount> discounts = invoiceDiscountRepository.findByInvoiceIdOrderByIdAsc(invoice.getId());
+        BigDecimal totalGrossAmount = invoice.getAmount();
+        BigDecimal totalDiscountAmount = BigDecimal.ZERO;
+        for (InvoiceDiscount d : discounts) {
+            if (d.getDiscountType() == DiscountType.PERCENTAGE) {
+                BigDecimal pctAmt = totalGrossAmount.multiply(d.getDiscountValue()).divide(new BigDecimal("100.00"), 2, RoundingMode.HALF_UP);
+                totalDiscountAmount = totalDiscountAmount.add(pctAmt);
+            } else {
+                totalDiscountAmount = totalDiscountAmount.add(d.getDiscountValue());
+            }
+        }
+        totalDiscountAmount = totalDiscountAmount.setScale(2, RoundingMode.HALF_UP);
+        BigDecimal totalNetAmount = totalGrossAmount.subtract(totalDiscountAmount).max(BigDecimal.ZERO).setScale(2, RoundingMode.HALF_UP);
+
+        BigDecimal vatAmount = totalNetAmount.multiply(invoice.getVatRate()).divide(new BigDecimal("100.00"), 2, RoundingMode.HALF_UP);
+        return totalNetAmount.add(vatAmount).setScale(2, RoundingMode.HALF_UP);
+    }
+
+    private void validateStatusTransition(InvoiceStatusCategory current, InvoiceStatusCategory target) {
         boolean valid = switch (current) {
-            case DRAFT -> target == InvoiceStatus.PRINTED || target == InvoiceStatus.CANCELLED;
-            case PRINTED -> target == InvoiceStatus.DRAFT || target == InvoiceStatus.SOLD || target == InvoiceStatus.CANCELLED;
-            case SOLD -> target == InvoiceStatus.ARCHIVED;
-            case CANCELLED -> target == InvoiceStatus.ARCHIVED;
-            case ARCHIVED -> target == InvoiceStatus.FINAL;
-            case FINAL -> false;
+            case DRAFT -> target == InvoiceStatusCategory.CONFIRMED || target == InvoiceStatusCategory.CANCELLED;
+            case CONFIRMED -> target == InvoiceStatusCategory.CONFIRMED || target == InvoiceStatusCategory.CANCELLED || target == InvoiceStatusCategory.CLOSED || target == InvoiceStatusCategory.DRAFT;
+            case CANCELLED -> target == InvoiceStatusCategory.CLOSED;
+            case CLOSED -> false;
         };
 
         if (!valid) {
-            throw new ConflictException("Invalid invoice status transition from " + current + " to " + target);
+            throw new ConflictException("Invalid invoice status category transition from " + current + " to " + target);
         }
     }
 

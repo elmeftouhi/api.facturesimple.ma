@@ -54,7 +54,7 @@ public class InvoiceController {
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size
     ) {
-        return invoiceService.search(parseStatus(status), fromDate, toDate, customerId, exerciceId, page, size);
+        return invoiceService.search(status, fromDate, toDate, customerId, exerciceId, page, size);
     }
 
     @GetMapping("/payments")
@@ -62,21 +62,7 @@ public class InvoiceController {
         return invoiceService.findAllPayments();
     }
 
-    private InvoiceStatus parseStatus(String status) {
-        if (status == null || status.isBlank()) {
-            return null;
-        }
 
-        try {
-            return InvoiceStatus.valueOf(status.trim().toUpperCase(Locale.ROOT));
-        } catch (IllegalArgumentException ex) {
-            String allowed = Arrays.stream(InvoiceStatus.values())
-                    .map(Enum::name)
-                    .toList()
-                    .toString();
-            throw new BadRequestException("Invalid status '" + status + "'. Allowed values: " + allowed);
-        }
-    }
 
     @GetMapping("/{id}")
     public InvoiceResponse findById(@PathVariable Long id) {
@@ -105,6 +91,11 @@ public class InvoiceController {
     @PutMapping("/{id}/status")
     public InvoiceResponse changeStatus(@PathVariable Long id, @Valid @RequestBody InvoiceStatusUpdateRequest request) {
         return invoiceService.changeStatus(id, request);
+    }
+
+    @PutMapping("/{id}/lock")
+    public InvoiceResponse toggleLock(@PathVariable Long id, @RequestParam boolean locked) {
+        return invoiceService.toggleLock(id, locked);
     }
 
     @GetMapping("/{id}/status-history")

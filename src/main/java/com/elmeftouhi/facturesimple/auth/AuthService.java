@@ -22,6 +22,7 @@ import com.elmeftouhi.facturesimple.user.Role;
 import com.elmeftouhi.facturesimple.user.UserStatus;
 import com.elmeftouhi.facturesimple.user.UserTenant;
 import com.elmeftouhi.facturesimple.user.UserTenantRepository;
+import com.elmeftouhi.facturesimple.invoice.InvoiceStatusService;
 import java.security.SecureRandom;
 import java.time.Instant;
 import java.util.HashSet;
@@ -53,6 +54,7 @@ public class AuthService {
     private final JwtService jwtService;
     private final TokenBlacklistService tokenBlacklistService;
     private final JwtProperties jwtProperties;
+    private final InvoiceStatusService invoiceStatusService;
 
     @Transactional
     public AuthResponse register(RegisterRequest request) {
@@ -239,7 +241,9 @@ public class AuthService {
 
         Tenant tenant = new Tenant();
         tenant.setName(normalizedTenantName);
-        return tenantRepository.save(tenant);
+        Tenant saved = tenantRepository.save(tenant);
+        invoiceStatusService.initializeDefaultStatuses(saved.getId());
+        return saved;
     }
 
     private String extractBearerToken(String authorizationHeader) {

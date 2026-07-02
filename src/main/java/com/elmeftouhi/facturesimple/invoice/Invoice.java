@@ -81,9 +81,11 @@ public class Invoice extends BaseTenantAwareEntity {
     @Column(name = "template_used", length = 30)
     private InvoiceTemplate templateUsed = InvoiceTemplate.CLASSIC;
 
-    @Enumerated(EnumType.STRING)
-    @Column(nullable = false, length = 20)
-    private InvoiceStatus status = InvoiceStatus.DRAFT;
+    @Column(nullable = false, length = 80)
+    private String status = "DRAFT";
+
+    @Column(name = "locked", nullable = false)
+    private boolean locked = false;
 
     @OneToMany(mappedBy = "invoice", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
     private List<InvoiceLineItem> lineItems = new ArrayList<>();
