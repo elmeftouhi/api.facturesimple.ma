@@ -238,6 +238,42 @@ public class InvoiceService {
         return toResponse(invoice);
     }
 
+    @Transactional(readOnly = true)
+    public InvoiceResponse lookupInvoice(String number) {
+        if (number == null || number.isBlank()) {
+            throw new BadRequestException("Invoice number must be provided");
+        }
+
+        Long tenantId = TenantContext.getRequiredTenantId();
+        String trimmed = number.trim();
+
+        // 1. Try search by formatted number
+        Optional<Invoice> invoiceOpt = invoiceRepository.findByFormattedNumberAndTenantId(trimmed, tenantId);
+
+        // 2. If not found, try parsing as Long and search by raw invoiceNumber
+        if (invoiceOpt.isEmpty()) {
+            try {
+                Long rawNum = Long.parseLong(trimmed);
+                invoiceOpt = invoiceRepository.findByInvoiceNumberAndTenantId(rawNum, tenantId);
+            } catch (NumberFormatException e) {
+                // Ignore
+            }
+        }
+
+        // 3. Fallback: try stripping hash sign '#' and parse
+        if (invoiceOpt.isEmpty() && trimmed.startsWith("#")) {
+            try {
+                Long rawNum = Long.parseLong(trimmed.substring(1));
+                invoiceOpt = invoiceRepository.findByInvoiceNumberAndTenantId(rawNum, tenantId);
+            } catch (NumberFormatException e) {
+                // Ignore
+            }
+        }
+
+        return invoiceOpt.map(this::toResponse)
+                .orElseThrow(() -> new ResourceNotFoundException("Invoice not found with number: " + number));
+    }
+
     @Transactional
     public InvoiceResponse update(Long id, InvoiceUpdateRequest request) {
         Long tenantId = TenantContext.getRequiredTenantId();
@@ -606,6 +642,33 @@ public class InvoiceService {
                 payment.getPaymentReference(),
                 payment.getPaymentDate(),
                 payment.getPaidAmount()
+        );
+    }
+
+    @Transactional(readOnly = true)
+    public List<com.elmeftouhi.facturesimple.invoice.dto.TenantPaymentResponse> findAllPayments() {
+        Long tenantId = TenantContext.getRequiredTenantId();
+        return paymentRepository.findAllByTenantIdOrderByPaymentDateDescIdDesc(tenantId)
+                .stream()
+                .map(this::toTenantPaymentResponse)
+                .toList();
+    }
+
+    private com.elmeftouhi.facturesimple.invoice.dto.TenantPaymentResponse toTenantPaymentResponse(InvoicePayment payment) {
+        Invoice invoice = payment.getInvoice();
+        String customerName = (invoice != null && invoice.getCustomer() != null) ? invoice.getCustomer().getName() : "Inline Customer";
+        String invoiceNum = (invoice != null) ? (invoice.getFormattedNumber() != null ? invoice.getFormattedNumber() : "#" + invoice.getInvoiceNumber()) : "-";
+        Long invoiceId = (invoice != null) ? invoice.getId() : null;
+
+        return new com.elmeftouhi.facturesimple.invoice.dto.TenantPaymentResponse(
+                payment.getId(),
+                payment.getPaymentMethod(),
+                payment.getPaymentReference(),
+                payment.getPaymentDate(),
+                payment.getPaidAmount(),
+                invoiceId,
+                invoiceNum,
+                customerName
         );
     }
 

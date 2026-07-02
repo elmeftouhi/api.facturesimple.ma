@@ -4,6 +4,7 @@ import com.elmeftouhi.facturesimple.invoice.dto.InvoiceCreateRequest;
 import com.elmeftouhi.facturesimple.invoice.dto.InvoicePageResponse;
 import com.elmeftouhi.facturesimple.invoice.dto.InvoicePaymentRequest;
 import com.elmeftouhi.facturesimple.invoice.dto.InvoicePaymentResponse;
+import com.elmeftouhi.facturesimple.invoice.dto.TenantPaymentResponse;
 import com.elmeftouhi.facturesimple.invoice.dto.InvoiceResponse;
 import com.elmeftouhi.facturesimple.invoice.dto.InvoiceStatusChangeLogResponse;
 import com.elmeftouhi.facturesimple.invoice.dto.InvoiceStatusUpdateRequest;
@@ -56,6 +57,11 @@ public class InvoiceController {
         return invoiceService.search(parseStatus(status), fromDate, toDate, customerId, exerciceId, page, size);
     }
 
+    @GetMapping("/payments")
+    public List<TenantPaymentResponse> findAllPayments() {
+        return invoiceService.findAllPayments();
+    }
+
     private InvoiceStatus parseStatus(String status) {
         if (status == null || status.isBlank()) {
             return null;
@@ -75,6 +81,11 @@ public class InvoiceController {
     @GetMapping("/{id}")
     public InvoiceResponse findById(@PathVariable Long id) {
         return invoiceService.findById(id);
+    }
+
+    @GetMapping("/lookup")
+    public InvoiceResponse lookupInvoice(@RequestParam String number) {
+        return invoiceService.lookupInvoice(number);
     }
 
     @GetMapping(value = "/{id}/pdf", produces = MediaType.APPLICATION_PDF_VALUE)

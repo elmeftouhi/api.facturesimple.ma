@@ -14,6 +14,10 @@ public interface InvoiceRepository extends JpaRepository<Invoice, Long>, JpaSpec
 
     Optional<Invoice> findByIdAndTenantId(Long id, Long tenantId);
 
+    Optional<Invoice> findByInvoiceNumberAndTenantId(Long invoiceNumber, Long tenantId);
+
+    Optional<Invoice> findByFormattedNumberAndTenantId(String formattedNumber, Long tenantId);
+
     boolean existsByInvoiceNumberAndTenantId(Long invoiceNumber, Long tenantId);
 
     // Only counts official (non-DRAFT) invoices to avoid gaps when drafts are deleted.

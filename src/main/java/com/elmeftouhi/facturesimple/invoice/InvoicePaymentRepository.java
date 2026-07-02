@@ -6,5 +6,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 public interface InvoicePaymentRepository extends JpaRepository<InvoicePayment, Long> {
 
     List<InvoicePayment> findByInvoiceIdOrderByPaymentDateDesc(Long invoiceId);
+
+    List<InvoicePayment> findAllByTenantIdOrderByPaymentDateDescIdDesc(Long tenantId);
 }
 
