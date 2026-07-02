@@ -23,6 +23,7 @@ import com.elmeftouhi.facturesimple.user.UserStatus;
 import com.elmeftouhi.facturesimple.user.UserTenant;
 import com.elmeftouhi.facturesimple.user.UserTenantRepository;
 import com.elmeftouhi.facturesimple.invoice.InvoiceStatusService;
+import com.elmeftouhi.facturesimple.multitenancy.TenantContext;
 import java.security.SecureRandom;
 import java.time.Instant;
 import java.util.HashSet;
@@ -242,7 +243,12 @@ public class AuthService {
         Tenant tenant = new Tenant();
         tenant.setName(normalizedTenantName);
         Tenant saved = tenantRepository.save(tenant);
-        invoiceStatusService.initializeDefaultStatuses(saved.getId());
+        try {
+            TenantContext.setTenantId(saved.getId());
+            invoiceStatusService.initializeDefaultStatuses(saved.getId());
+        } finally {
+            TenantContext.clear();
+        }
         return saved;
     }
 
